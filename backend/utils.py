@@ -1,10 +1,10 @@
 import yfinance
-import pandas
+import pandas as pd
 import pdb
 
 
 def fetch_etf_data(ticker_symbol: list[str],
-                   start_date: str = '2003-12-31',
+                   start_date: str = '2015-12-31',
                    end_date: str = '31-12-2024',
                    store_data: bool = True) -> pd.DataFrame:
     """
