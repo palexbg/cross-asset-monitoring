@@ -27,3 +27,5 @@ if __name__ == "__main__":
     rets = assets.get_returns(freq=None)
 
     sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
+
+    pdb.set_trace()

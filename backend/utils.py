@@ -48,5 +48,4 @@ def freq2days(freq):
         "W": 52
     }
 
-    pdb.set_trace()
     return output.get(freq, f"Date conversion key not found, it must be one of {list(output.keys())}.")

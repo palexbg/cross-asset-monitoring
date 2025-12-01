@@ -39,10 +39,9 @@ class AssetSeries(finTS):
         # TODO: freq has to be a pandas thingy, need to give the list of those here
 
         # Resample the data to the desired frequency, use pandas offset aliases
-        if freq is None:
-            freq = self.freq
+        target_freq = freq if freq is not None else self.freq
 
-        data = self.to_freq(freq=freq)
+        data = self.to_freq(freq=target_freq)
 
         if type == 'log':
             returns = np.log(data/data.shift(1))
