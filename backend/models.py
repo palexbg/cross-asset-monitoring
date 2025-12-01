@@ -118,9 +118,6 @@ def compute_ewma_covar(
 
     T, N = data.shape
 
-    if N == 1:
-        data = data.reshape(-1, 1)  # investigate
-
     warmup = min(span, T)
 
     init_mean = np.mean(data[:warmup, :], axis=0)
