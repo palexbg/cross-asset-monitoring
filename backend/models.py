@@ -1,4 +1,5 @@
 from numba import njit
+from backend.utils import freq2days
 import numpy as np
 import pandas as pd
 import pdb
@@ -76,10 +77,10 @@ def compute_ewma_kernel(
 
 def compute_ewma_covar(
     returns: pd.DataFrame,
-    span: int,
-    annualize: bool = True,
-    freq='B',
-    clip_outliers=True
+    span: int = 21,
+    annualize: bool = False,
+    freq: str = 'B',
+    clip_outliers: bool = True
 ) -> pd.DataFrame:
     # This is related to a multivariate version of IGARCH(1,1), a particular case of GARCH(1, 1)
 
@@ -108,5 +109,13 @@ def compute_ewma_covar(
     cov_tensor = compute_ewma_kernel(
         returns=data, alpha=alpha, initial_cov=init_cov)
 
+    # nanify the initial warmup period
+    cov_tensor[:warmup, :, :] = np.nan
+
+    if annualize:
+        ann_factor = freq2days(freq=freq)
+        cov_tensor = ann_factor * cov_tensor
+
     pdb.set_trace()
+
     return cov_tensor

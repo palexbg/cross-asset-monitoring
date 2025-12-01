@@ -5,7 +5,7 @@ import pdb
 
 def fetch_etf_data(ticker_symbol: list[str],
                    start_date: str = '2015-12-31',
-                   end_date: str = '31-12-2024',
+                   end_date: str = '2024-12-31',
                    store_data: bool = True) -> pd.DataFrame:
     """
     Fetches historical ETF data for the given ticker symbols.
@@ -37,3 +37,16 @@ def fetch_etf_data(ticker_symbol: list[str],
         data.to_csv('etf_data.csv', index=False)
 
     return data
+
+
+def freq2days(freq):
+
+    output = {
+        "B": 252,
+        "M": 12,
+        "D": 365.25,
+        "W": 52
+    }
+
+    pdb.set_trace()
+    return output.get(freq, f"Date conversion key not found, it must be one of {list(output.keys())}.")
