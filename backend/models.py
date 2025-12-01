@@ -50,7 +50,30 @@ def clean_returns_outliers(
 
 
 @njit
-def compute_ewma_kernel(
+def compute_ewma_mean_kernel(
+    returns: np.ndarray,
+    alpha: float,
+    initial_mean: np.ndarray
+) -> np.ndarray:
+
+    T, N = returns.shape
+
+    mean_history = np.zeros((T, N))  # that is a simple tensor
+
+    curr_mean = initial_mean.copy()
+
+    for t in range(T):
+        r_t = returns[t, :]
+
+        curr_mean = r_t * (1 - alpha) + alpha * curr_mean
+
+        mean_history[t, :] = curr_mean
+
+    return mean_history
+
+
+@njit
+def compute_ewma_cov_kernel(
     returns: np.ndarray,
     alpha: float,
     initial_cov: np.ndarray
@@ -80,7 +103,8 @@ def compute_ewma_covar(
     span: int = 21,
     annualize: bool = False,
     freq: str = 'B',
-    clip_outliers: bool = True
+    clip_outliers: bool = True,
+    demean: bool = True
 ) -> pd.DataFrame:
     # This is related to a multivariate version of IGARCH(1,1), a particular case of GARCH(1, 1)
 
@@ -99,19 +123,33 @@ def compute_ewma_covar(
 
     warmup = min(span, T)
 
+    init_mean = np.mean(data[:warmup, :], axis=0)
     init_vols = np.std(data[:warmup, :], axis=0)
-    init_cov = np.cov(data[:warmup, :], rowvar=False)
 
+    if N == 1:
+        init_cov = np.array([[np.var(data[:warmup, :])]])  # cast to 2d
+    else:
+        init_cov = np.cov(data[:warmup, :], rowvar=False)
+
+    # 0) clip outliers
     if clip_outliers:
         data = clean_returns_outliers(
             returns=data, alpha=alpha, initial_vols=init_vols)
 
-    cov_tensor = compute_ewma_kernel(
+    # 1) demean before computing the variance (more relevant for trending assets)
+    if demean:
+        ewma_means = compute_ewma_mean_kernel(
+            data, alpha=alpha, initial_mean=init_mean)
+        data = data - ewma_means
+
+    # 2) calculate the ewma cov
+    cov_tensor = compute_ewma_cov_kernel(
         returns=data, alpha=alpha, initial_cov=init_cov)
 
-    # nanify the initial warmup period
+    # 3) nanify the initial warmup period
     cov_tensor[:warmup, :, :] = np.nan
 
+    # 4) annualization of the covmat, matching the demeaning
     if annualize:
         ann_factor = freq2days(freq=freq)
         cov_tensor = ann_factor * cov_tensor

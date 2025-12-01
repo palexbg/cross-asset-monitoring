@@ -4,6 +4,7 @@ from backend.models import compute_ewma_covar
 from pathlib import Path
 import pandas as pd
 import pdb
+
 if __name__ == "__main__":
     ticker_symbol = ['SPY', 'QQQ', 'EEM', 'TLT',
                      'IEF', 'LQD', 'HYG', 'SHY', 'GLD']
@@ -26,4 +27,3 @@ if __name__ == "__main__":
     rets = assets.get_returns(freq=None)
 
     sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
-    pdb.set_trace()
