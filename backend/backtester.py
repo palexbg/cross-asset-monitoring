@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import warnings
+
 from typing import Union, Optional, Tuple
 from numba import njit
 from dataclasses import dataclass
@@ -29,6 +31,12 @@ class BacktestResult():
     costs: pd.Series
     cash: pd.Series
 
+    def gross_exposure(self) -> pd.Series:
+        raise NotImplementedError("Gross exposure is not implemented yet")
+
+    def turnover(self) -> pd.Series:
+        raise NotImplementedError("Turnover not implemented yet")
+
 
 def validate_inputs(
     prices: pd.DataFrame,
@@ -38,39 +46,42 @@ def validate_inputs(
     if not prices.index.equals(weights.index):
         raise ValueError("Index Mismatch: Align data before backtesting.")
 
-    if prices.values.isna().any().any():
+    if prices.isna().any().any():
         raise ValueError("NaNs in Prices.")
 
-    if weights.values.isna().any().any():
+    if weights.isna().any().any():
         raise ValueError("NaNs in Weights.")
 
-    if prices.values.isinf().any().any():
+    if prices.isinf().any().any():
         raise ValueError("Infinity in Prices.")
 
-    if weights.values.isinf().any().any():
+    if weights.isinf().any().any():
         raise ValueError("Infinity in Weights.")
 
     if prices.shape != weights.shape:
         raise ValueError(f"Shape mismatch: {prices.shape} vs {weights.shape}")
 
-    if (weights.values < 0).any().any():
-        print("Warning: Negative weights.")
+    if (weights < 0).any().any():
+        warnings.warn("Warning: Negative weights.", RuntimeWarning)
 
 
 def run_backtest(
         prices: pd.DataFrame,
         target_weights: pd.DataFrame,
+        backtest_config: BacktestConfig,
         rebal_freq: Optional[str] = None,
-        rebal_vec: Union[pd.DataFrame, pd.Series] = None,
-        backtest_config: BacktestConfig = BacktestConfig()
+        rebal_vec: Optional[pd.Series] = None
 ) -> BacktestResult:
 
     validate_inputs(prices=prices, weights=target_weights)
 
     if rebal_vec is not None:
+        if not np.issubdtype(rebal_vec, np.bool_):
+            raise TypeError('rebal_vec must be boolean')
         is_rebal_day = rebal_vec.to_numpy()
     elif rebal_freq is not None:
-        pass
+        raise NotImplementedError(
+            "Calendar based rebal is not implemented yet")
     else:  # try to infer it from the target weights. Rebalancing is whenever all bigger than 0
         weight_delta = target_weights.diff().abs().sum(axis=1)
         is_rebal_day = (weight_delta > 1e-6).to_numpy(dtype=bool)
@@ -93,7 +104,7 @@ def run_backtest(
         holdings=pd.DataFrame(holdings, index=prices.index,
                               columns=prices.columns),
         weights=pd.DataFrame(weights, index=prices.index,
-                             columns=weights.columns),
+                             columns=prices.columns),
         costs=pd.Series(costs, index=prices.index),
         cash=pd.Series(cash, index=prices.index)
     )
@@ -106,7 +117,7 @@ def backtest_kernel(
     prices: np.ndarray,
     target_weights: np.ndarray,
     # decouple signal from execution
-    is_rebal_day: np.ndarray = None,
+    is_rebal_day: np.ndarray,
     initial_cash: float = 1_000_000.0,
 
     # Execution logic
@@ -135,25 +146,28 @@ def backtest_kernel(
     current_holdings = np.zeros(N)  # we do not hold anything at the beginning
 
     for t in range(T):
-        current_prices = prices[t]
+        prices_t = prices[t, :]
 
         # Mark-to-market, daily - this is before trading
-        portfolio_value = np.sum(current_prices * current_holdings)
+        portfolio_value = np.sum(prices_t * current_holdings)
         current_nav = portfolio_value + current_cash
+
+        transaction_cost = 0.0
 
         # we are trading at close, best we could do is to allocate the shares compared to yesterday's prices and NAV from yesterday.
         if is_rebal_day[t]:
             if t == 0:
                 sizing_nav = initial_cash
                 # if we invest on the first day we have a hack and assume that we trade after the actual close
-                sizing_prices = prices[0]
+                sizing_prices = prices_t
             else:
                 # we aim to guard against implementation shortfall for any rebal day, other than the first one
                 # see https://www.investopedia.com/terms/i/implementation-shortfall.asp
-                sizing_nav = nav_history[t-1]
-                sizing_prices = prices[t-1]
+                # actual deviation of targeted holdings vs executed holdings are not stored yet
+                sizing_nav = nav_history[t - 1]
+                sizing_prices = prices[t - 1, :]
 
-            target_val = sizing_nav * target_weights[t]
+            target_val = sizing_nav * target_weights[t, :]
 
             target_holdings = target_val / sizing_prices
 
@@ -161,34 +175,28 @@ def backtest_kernel(
             trade_units = target_holdings - current_holdings
 
             # we trade at the actual price in t, see difference to sizing prices. This is to reduce implementation shortfall
-            trade_value = np.sum(trade_units * current_prices)
+            trade_value = np.sum(trade_units * prices_t)
+
             # this is always positive, so we take the transaction costs out of the cash
             transaction_cost = np.sum(
-                np.abs(trade_units) * current_prices) * transaction_costs_bps
+                np.abs(trade_units) * prices_t) * transaction_costs_bps / 10_000
 
-            # Store the history
             # - update cash
-            cash_history[t] = current_cash - transaction_cost - trade_value
+            current_cash = current_cash - transaction_cost - trade_value
 
-            # - update the costs
-            costs_history[t] = transaction_cost
+            current_holdings = current_holdings + trade_units
 
-            # This is what actually happened
-            current_holdings = target_holdings
+        current_nav = np.sum(prices_t * current_holdings) + current_cash
 
-            # Update recurrencies
-            current_cash = cash_history[t]
-            current_holdings = holdings_history[t]
-        else:
-            costs_history[t] = 0.0
-
-            # cash we do not touch for now
-
-        # store history
         nav_history[t] = current_nav
         cash_history[t] = current_cash
         holdings_history[t] = current_holdings
+        costs_history[t] = transaction_cost
 
-        weights_history[t, :] = (current_holdings * current_prices)/current_nav
+        # update the weights
+        if current_nav != 0.0:
+            weights_history[t, :] = (current_holdings * prices_t)/current_nav
+        else:
+            weights_history[t, :] = 0.0
 
     return nav_history, holdings_history, weights_history, cash_history, costs_history
