@@ -1,5 +1,7 @@
 import yfinance
 import pandas as pd
+import numpy as np
+import warnings
 import pdb
 
 
@@ -49,3 +51,21 @@ def freq2days(freq):
     }
 
     return output.get(freq, f"Date conversion key not found, it must be one of {list(output.keys())}.")
+
+
+def get_returns(prices: pd.DataFrame, lookback: int = 1, type: str = 'log') -> pd.DataFrame:
+    # TODO: freq has to be a pandas thingy, need to give the list of those here
+    # Resample the data to the desired frequency, use pandas offset aliases
+
+    if type == 'log':
+        returns = np.log(prices/prices.shift(lookback))
+    elif type == 'simple':
+        returns = prices/prices.shift(lookback) - 1
+    else:
+        raise ValueError("type must be either 'log' or 'simple'")
+
+    if np.isnan(returns.values).any():
+        # base class for warnings about dubious runtime behavior
+        warnings.warn(
+            "There are remaining NaNs in the series", RuntimeWarning)
+    return returns

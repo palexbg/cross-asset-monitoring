@@ -1,18 +1,34 @@
-from backend import utils
-from backend.data import finTS, AssetSeries, IndicatorSeries
-from backend.models import compute_ewma_covar
+from backend.utils import fetch_etf_data, get_returns
+from backend.moments import compute_ewma_covar
 from pathlib import Path
 import pandas as pd
-import pdb
 
 if __name__ == "__main__":
-    ticker_symbol = ['SPY', 'QQQ', 'EEM', 'TLT',
-                     'IEF', 'LQD', 'HYG', 'SHY', 'GLD']
+    investment_universe = ['SPY', 'QQQ', 'EEM', 'TLT',
+                           'IEF', 'LQD', 'HYG', 'SHY', 'GLD']
+
+    factor_tickers = {
+        'ACWI': 'Equity',
+        'GOVT': 'Rates',
+        'HYG': 'Credit',
+        'DBC': 'Commodities',
+        'EEM': 'Emerging',
+        'TIP': 'Inflation',
+        'MTUM': 'Momentum',
+        'VLUE': 'Value',
+        'QUAL': 'Quality',
+        'USMV': 'LowVol'
+    }
+    factor_universe = list(factor_tickers.keys())
+    tickers_download = investment_universe + factor_universe
 
     if Path('etf_data.csv').exists():
         data = pd.read_csv('etf_data.csv', parse_dates=['Date'])
     else:
-        data = utils.fetch_etf_data(ticker_symbol=ticker_symbol, end_date=None)
+        data = fetch_etf_data(
+            ticker_symbol=tickers_download,
+            start_date='2015-12-31',
+            end_date=None)
 
     close = (data
              .loc[data["Field"] == 'Close']
@@ -21,11 +37,11 @@ if __name__ == "__main__":
              .unstack()
              )
 
-    assets = AssetSeries(ticker=close.columns,
-                         raw_data=close, freq=None)
+    rets = get_returns(close, lookback=1, type='log')
 
-    rets = assets.get_returns(freq=None)
+    instruments_ret = rets[investment_universe]
+    factors_raw = rets[factor_universe].rename(factor_tickers, axis=1)
 
     sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
 
-    pdb.set_trace()
+    print('a')
