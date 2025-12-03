@@ -4,7 +4,7 @@ from pandas.tseries.offsets import CustomBusinessMonthBegin
 from pandas.tseries.offsets import CustomBusinessMonthEnd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from typing import Optional
-from structs import RebalanceSchedule
+from .structs import RebalanceSchedule
 
 # REBALANCE SCHEDULES
 
@@ -30,7 +30,7 @@ class RebalPolicies:
 @dataclass(frozen=True)
 class BacktestConfig:
     initial_cash: float = 1_000_000.0
-    cost_bps: float = 0.0010
+    cost_rate: float = 0.0010
     trade_at_close: bool = True
     use_last_known_price: bool = True
     interest_rate: float = 0.0

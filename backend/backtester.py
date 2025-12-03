@@ -94,7 +94,7 @@ def run_backtest(
         initial_cash=backtest_config.initial_cash,
         trade_at_close=backtest_config.trade_at_close,
         reinvest_proceeds=backtest_config.reinvest_proceeds,
-        transaction_costs_bps=backtest_config.cost_bps,
+        transaction_costs_bps=backtest_config.cost_rate,
         use_last_known_price=backtest_config.use_last_known_price,
         interest_cash=backtest_config.interest_rate
     )

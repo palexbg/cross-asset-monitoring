@@ -91,6 +91,8 @@ def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.Datet
             f"Schedule {schedule.name} is missing both offset and generator_func")
 
     # Prices intersects actual rebal dates
+    # Validate that (!)
+    valid_dates = price_index.searchsorted(theoretical_dates)
     valid_dates = price_index.intersection(theoretical_dates)
 
     # generate the rebal vec with true and false

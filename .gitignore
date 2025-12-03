@@ -4,3 +4,4 @@ tests/__pycache__/
 *.csv
 todo.md
 *.txt
+*.html
