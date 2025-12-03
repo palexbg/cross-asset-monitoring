@@ -1,14 +1,17 @@
-from backend.utils import fetch_etf_data, get_returns
+from backend.utils import fetch_etf_data, get_returns, get_valid_rebal_vec_dates
 from backend.moments import compute_ewma_covar
 from pathlib import Path
 from backend.factors import FactorEngine
-from backend.config import FACTOR_LENS_UNIVERSE
+from backend.config import FACTOR_LENS_UNIVERSE, BacktestConfig, RebalPolicies
+from backend.backtester import run_backtest
+from pandas.tseries.offsets import CustomBusinessMonthBegin
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 import pandas as pd
 
 if __name__ == "__main__":
     investment_universe = ['SPY', 'QQQ', 'EEM', 'TLT',
-                           'IEF', 'LQD', 'HYG', 'SHY', 'GLD']
+                           'IEF', 'LQD', 'HYG', 'SHY', 'GLD', 'BND']
 
     # should pull that from FACTOR_LENS_UNIVERSE
     factor_tickers = {
@@ -48,11 +51,42 @@ if __name__ == "__main__":
     rf = FactorEngine(prices=close[factor_universe],
                       config=FACTOR_LENS_UNIVERSE)
 
-    factors = rf.run()
+    factors_ret = rf.run()
 
-    rets = get_returns(close, lookback=1, type='log')
-    instruments_ret = rets[investment_universe]
+    # test backtester
+    portfolio_tickers = ['SPY', 'BND']
+    pf_prices = close[portfolio_tickers]
+
+    pf_weights = pd.DataFrame(
+        index=pf_prices.index,
+        columns=portfolio_tickers,
+        data=0.0
+    )
+
+    valid_dates, rebal_vec = get_valid_rebal_vec_dates(
+        schedule=RebalPolicies.US_MONTH_START,
+        price_index=pf_prices.index
+    )
+
+    pf_weights.loc[valid_dates, 'SPY'] = 0.60
+    pf_weights.loc[valid_dates, 'BND'] = 0.40
+
+    backtest_result = run_backtest(
+        prices=pf_prices,
+        target_weights=pf_weights,
+        backtest_config=BacktestConfig(),
+        rebal_vec=rebal_vec
+    )
+
+    # rets = get_returns(close, lookback=1, type='log')
+    # instruments_ret = rets[investment_universe]
+
+    # test one backtest on the SP500, just to code in the metrics and the portfolio analysis object
 
     # sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
+
+    # run_backtest(close)
+    # weights = n
+    # Backtester()
 
     print('a')

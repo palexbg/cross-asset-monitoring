@@ -46,16 +46,16 @@ def validate_inputs(
     if not prices.index.equals(weights.index):
         raise ValueError("Index Mismatch: Align data before backtesting.")
 
-    if prices.isna().any().any():
+    if prices.isna().values.any():
         raise ValueError("NaNs in Prices.")
 
-    if weights.isna().any().any():
+    if weights.isna().values.any():
         raise ValueError("NaNs in Weights.")
 
-    if prices.isinf().any().any():
+    if np.isinf(prices.values).any():
         raise ValueError("Infinity in Prices.")
 
-    if weights.isinf().any().any():
+    if np.isinf(weights.values).any():
         raise ValueError("Infinity in Weights.")
 
     if prices.shape != weights.shape:
@@ -76,7 +76,7 @@ def run_backtest(
     validate_inputs(prices=prices, weights=target_weights)
 
     if rebal_vec is not None:
-        if not np.issubdtype(rebal_vec, np.bool_):
+        if not np.issubdtype(rebal_vec.dtype, np.bool_):
             raise TypeError('rebal_vec must be boolean')
         is_rebal_day = rebal_vec.to_numpy()
     elif rebal_freq is not None:
@@ -179,7 +179,7 @@ def backtest_kernel(
 
             # this is always positive, so we take the transaction costs out of the cash
             transaction_cost = np.sum(
-                np.abs(trade_units) * prices_t) * transaction_costs_bps / 10_000
+                np.abs(trade_units) * prices_t) * transaction_costs_bps
 
             # - update cash
             current_cash = current_cash - transaction_cost - trade_value

@@ -1,8 +1,10 @@
+from typing import Tuple
 import yfinance
 import pandas as pd
 import numpy as np
 import warnings
-import pdb
+
+from .structs import RebalanceSchedule
 
 
 def fetch_etf_data(ticker_symbol: list[str],
@@ -69,3 +71,30 @@ def get_returns(prices: pd.DataFrame, lookback: int = 1, type: str = 'log') -> p
         warnings.warn(
             "There are remaining NaNs in the series", RuntimeWarning)
     return returns
+
+
+def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.DatetimeIndex) -> Tuple[pd.DatetimeIndex, pd.Series]:
+    """
+    Generate valid trading (rebal) dates. New schedules have to be added in the RebalanceSchedule class.
+    """
+    start_date = price_index[0]
+    end_date = price_index[-1]
+
+    # Generate theoretical rebal dates based on prices
+    if schedule.generator_func:
+        theoretical_dates = schedule.generator_func(start_date, end_date)
+    elif schedule.offset:
+        theoretical_dates = pd.date_range(
+            start=start_date, end=end_date, freq=schedule.offset)
+    else:
+        raise ValueError(
+            f"Schedule {schedule.name} is missing both offset and generator_func")
+
+    # Prices intersects actual rebal dates
+    valid_dates = price_index.intersection(theoretical_dates)
+
+    # generate the rebal vec with true and false
+    rebal_vec = pd.Series(False, index=price_index)
+    rebal_vec.loc[valid_dates] = True
+
+    return valid_dates, rebal_vec
