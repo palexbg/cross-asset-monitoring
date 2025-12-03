@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 import pdb
 
-# The core
-
 
 @njit
 def clean_returns_outliers(
@@ -150,7 +148,5 @@ def compute_ewma_covar(
     if annualize:
         ann_factor = freq2days(freq=freq)
         cov_tensor = ann_factor * cov_tensor
-
-    pdb.set_trace()
 
     return cov_tensor

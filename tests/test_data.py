@@ -1,24 +1,32 @@
 from backend.utils import fetch_etf_data, get_returns
 from backend.moments import compute_ewma_covar
 from pathlib import Path
+from backend.factors import FactorEngine
+from backend.config import FACTOR_LENS_UNIVERSE
+
 import pandas as pd
 
 if __name__ == "__main__":
     investment_universe = ['SPY', 'QQQ', 'EEM', 'TLT',
                            'IEF', 'LQD', 'HYG', 'SHY', 'GLD']
 
+    # should pull that from FACTOR_LENS_UNIVERSE
     factor_tickers = {
-        'ACWI': 'Equity',
-        'GOVT': 'Rates',
-        'HYG': 'Credit',
-        'DBC': 'Commodities',
-        'EEM': 'Emerging',
-        'TIP': 'Inflation',
+        'VT': 'Equity',
+        'IEF': 'Rates',
+        'LQD': 'Credit',
+        'GSG': 'Commodities',
+        # 'HYG': 'Credit2',
+        # 'DBC': 'Commodities2',
+        # 'EEM': 'Emerging',
+        # 'TIP': 'Inflation',
+        'VTV': 'Value',
         'MTUM': 'Momentum',
-        'VLUE': 'Value',
-        'QUAL': 'Quality',
-        'USMV': 'LowVol'
+        # 'VLUE': 'Value2',
+        # 'QUAL': 'Quality',
+        # 'USMV': 'LowVol'
     }
+
     factor_universe = list(factor_tickers.keys())
     tickers_download = investment_universe + factor_universe
 
@@ -37,11 +45,14 @@ if __name__ == "__main__":
              .unstack()
              )
 
+    rf = FactorEngine(prices=close[factor_universe],
+                      config=FACTOR_LENS_UNIVERSE)
+
+    factors = rf.run()
+
     rets = get_returns(close, lookback=1, type='log')
-
     instruments_ret = rets[investment_universe]
-    factors_raw = rets[factor_universe].rename(factor_tickers, axis=1)
 
-    sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
+    # sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
 
     print('a')

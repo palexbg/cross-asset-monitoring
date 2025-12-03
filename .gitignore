@@ -2,3 +2,4 @@ backend/__pycache__/
 tests/__pycache__/
 .venv/
 *.csv
+todo.md
