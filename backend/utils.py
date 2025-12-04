@@ -7,10 +7,10 @@ import warnings
 from .structs import RebalanceSchedule
 
 
-def fetch_etf_data(ticker_symbol: list[str],
-                   start_date: str = '2015-12-31',
-                   end_date: str = '2024-12-31',
-                   store_data: bool = True) -> pd.DataFrame:
+def fetch_yfinance_data(ticker_symbol: list[str],
+                        start_date: str = '2015-12-31',
+                        end_date: str = '2024-12-31',
+                        store_data: bool = True) -> pd.DataFrame:
     """
     Fetches historical ETF data for the given ticker symbols.
     Args:
@@ -55,16 +55,16 @@ def freq2days(freq):
     return output.get(freq, f"Date conversion key not found, it must be one of {list(output.keys())}.")
 
 
-def get_returns(prices: pd.DataFrame, lookback: int = 1, type: str = 'log') -> pd.DataFrame:
+def get_returns(prices: pd.DataFrame, lookback: int = 1, method: str = 'log') -> pd.DataFrame:
     # TODO: freq has to be a pandas thingy, need to give the list of those here
     # Resample the data to the desired frequency, use pandas offset aliases
 
-    if type == 'log':
+    if method == 'log':
         returns = np.log(prices/prices.shift(lookback))
-    elif type == 'simple':
+    elif method == 'simple':
         returns = prices/prices.shift(lookback) - 1
     else:
-        raise ValueError("type must be either 'log' or 'simple'")
+        raise ValueError("method must be either 'log' or 'simple'")
 
     if np.isnan(returns.values).any():
         # base class for warnings about dubious runtime behavior

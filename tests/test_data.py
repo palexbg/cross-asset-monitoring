@@ -1,17 +1,17 @@
 from backend.perfstats import PortfolioStats
-from backend.utils import fetch_etf_data, get_returns, get_valid_rebal_vec_dates
+from backend.utils import dailify_riskfree, fetch_yfinance_data, get_returns, get_valid_rebal_vec_dates
 from backend.moments import compute_ewma_covar
 from pathlib import Path
-from backend.factors import FactorEngine
+from backend.factors import FactorConstruction, FactorExposure
 from backend.config import FACTOR_LENS_UNIVERSE, BacktestConfig, RebalPolicies
 from backend.backtester import run_backtest
-import quantstats as qs
 
+import numpy as np
 import pandas as pd
 
 if __name__ == "__main__":
     investment_universe = ['SPY', 'QQQ', 'EEM', 'TLT',
-                           'IEF', 'LQD', 'HYG', 'SHY', 'GLD', 'BND']
+                           'IEF', 'LQD', 'HYG', 'SHY', 'GLD', 'BND', '^IRX']
 
     # should pull that from FACTOR_LENS_UNIVERSE
     factor_tickers = {
@@ -36,10 +36,10 @@ if __name__ == "__main__":
     if Path('etf_data.csv').exists():
         data = pd.read_csv('etf_data.csv', parse_dates=['Date'])
     else:
-        data = fetch_etf_data(
+        data = fetch_yfinance_data(
             ticker_symbol=tickers_download,
             start_date='2015-12-31',
-            end_date=None)
+            end_date='2025-11-30')
 
     close = (data
              .loc[data["Field"] == 'Close']
@@ -48,10 +48,17 @@ if __name__ == "__main__":
              .unstack()
              )
 
-    rf = FactorEngine(prices=close[factor_universe],
-                      config=FACTOR_LENS_UNIVERSE)
+    # Dailify risk free
 
-    factors_ret = rf.run()
+    close, risk_free_rate = dailify_riskfree(close, ticker='^IRX')
+
+    factor_engine = FactorConstruction(prices=close[factor_universe],
+                                       risk_free_rate=risk_free_rate,
+                                       factor_definition=FACTOR_LENS_UNIVERSE)
+
+    factors_ret = factor_engine.run()
+    # or np.exp(factors_ret.cumsum(axis=0))
+    factors_prices = (1 + factors_ret).cumprod(axis=0)
 
     # test backtester
     portfolio_tickers = ['SPY', 'BND']
@@ -75,11 +82,11 @@ if __name__ == "__main__":
         prices=pf_prices,
         target_weights=pf_weights,
         backtest_config=BacktestConfig(),
-        rebal_vec=rebal_vec
+        rebal_vec=rebal_vec,
     )
 
     port_saa = PortfolioStats(
-        backtest_result=saa)
+        backtest_result=saa, risk_free=risk_free_rate)
     perf_saa = port_saa.calculate_stats(mode='basic')
 
     port_saa.get_html_report(
@@ -88,15 +95,19 @@ if __name__ == "__main__":
         output_filename="my_strategy_report.html"
     )
 
-    # rets = get_returns(close, lookback=1, type='log')
-    # instruments_ret = rets[investment_universe]
+    print("Analyzing Exposures...")
+    exposure_engine = FactorExposure(
+        risk_factors=factors_prices,
+        nav=port_saa.nav.to_frame(),
+        risk_free_rate=risk_free_rate,          # <--- NEW: Pass RF here
+        analysis_mode='rolling',    # 'rolling' for time-series, 'full' for static
+        lookback=120,
+        smoothing_window=5
+    )
 
-    # test one backtest on the SP500, just to code in the metrics and the portfolio analysis object
+    betas, t_stats, rsq = exposure_engine.run()
 
-    # sigma_hat = compute_ewma_covar(returns=rets, span=21, annualize=True)
-
-    # run_backtest(close)
-    # weights = n
-    # Backtester()
+    attribution = exposure_engine.decompose_daily_returns(
+        port_saa.nav, factors_prices)
 
     print('a')

@@ -56,7 +56,7 @@ def compute_ewma_mean_kernel(
 
     T, N = returns.shape
 
-    mean_history = np.zeros((T, N))  # that is a simple tensor
+    mean_history = np.zeros((T, N))
 
     curr_mean = initial_mean.copy()
 

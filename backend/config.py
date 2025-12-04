@@ -3,7 +3,6 @@ from typing import List, Optional
 from pandas.tseries.offsets import CustomBusinessMonthBegin
 from pandas.tseries.offsets import CustomBusinessMonthEnd
 from pandas.tseries.holiday import USFederalHolidayCalendar
-from typing import Optional
 from .structs import RebalanceSchedule
 
 # REBALANCE SCHEDULES
@@ -27,16 +26,28 @@ class RebalPolicies:
 
 # BACKTEST CONFIGURATION
 
+
 @dataclass(frozen=True)
 class BacktestConfig:
     initial_cash: float = 1_000_000.0
     cost_rate: float = 0.0010
     trade_at_close: bool = True
     use_last_known_price: bool = True
-    interest_rate: float = 0.0
     reinvest_proceeds: bool = True
+    interest_rate: float = 0.0
 
 # FACTOR LENS CONFIGURATION
+# Following Two Sigma's Factor Lens setup
+
+
+@dataclass(frozen=True)
+class FactorConfig:
+    smoothing_window: int = 5  # days
+    lookback_window: int = 120  # days
+    smoothing_window: int = 5  # days
+    cov_span: int = 750  # days
+    target_yearly_vol: float = 0.15  # 15% annualized volatility
+    scale_factors: bool = True
 
 
 @dataclass(frozen=True)
@@ -45,7 +56,6 @@ class FactorDef:
     ticker: str
     description: Optional[str] = None
     parents: List[str] = field(default_factory=list)
-    target_vol: Optional[float] = 0.10
 
 
 FACTOR_LENS_UNIVERSE = [
