@@ -14,20 +14,18 @@ class PortfolioStats:
         self.backtest_result = backtest_result
         self.nav = backtest_result.nav
 
-        # 1. Get Daily Returns
         self.returns = get_returns(self.nav, method='simple')
 
-        # 2. Standardize Risk-Free Rate to a Series
+        # handle risk free
         if isinstance(risk_free, pd.Series):
-            # Align time-varying RF to the portfolio returns index
+            # align
             self.rf_series = risk_free.reindex(self.returns.index).fillna(0.0)
         else:
             # Convert constant float (annual %) to daily decimal series
             rf_daily = (risk_free / 100.0) / 252.0
             self.rf_series = pd.Series(rf_daily, index=self.returns.index)
 
-        # 3. Calculate Excess Returns (Pre-subtract RF)
-        # This circumvents the QuantStats "Series is ambiguous" bug
+        # excess returns as quantstats handles only a fixed float
         self.excess_returns = self.returns - self.rf_series
 
     def calculate_stats(self, mode: str = 'basic') -> pd.DataFrame:
@@ -60,7 +58,7 @@ class PortfolioStats:
         # Ideally, subtract RF from benchmark too if you want "Active vs Active":
         if benchmark is not None:
             # Align and subtract RF
-            bench_ret = get_returns(benchmark).reindex(
+            bench_ret = get_returns(benchmark, method='simple').reindex(
                 self.returns.index).fillna(0.0)
             bench_excess = bench_ret - self.rf_series
         else:

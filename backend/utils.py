@@ -100,3 +100,14 @@ def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.Datet
     rebal_vec.loc[valid_dates] = True
 
     return valid_dates, rebal_vec
+
+
+def dailify_riskfree(prices: pd.DataFrame, ticker: str = '^IRX') -> pd.DataFrame:
+    if ticker in prices.columns:
+        prices[ticker] = (prices[ticker] / 100.0) / 252.0
+        prices.rename(columns={ticker: 'RiskFreeRate'}, inplace=True)
+    else:
+        warnings.warn(
+            f"Ticker {ticker} not found in prices columns.", RuntimeWarning)
+
+    return prices, prices['RiskFreeRate']
