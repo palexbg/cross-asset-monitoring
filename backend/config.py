@@ -1,30 +1,9 @@
-from dataclasses import dataclass, field
-from typing import List, Optional
-from pandas.tseries.offsets import CustomBusinessMonthBegin
-from pandas.tseries.offsets import CustomBusinessMonthEnd
-from pandas.tseries.holiday import USFederalHolidayCalendar
-from .structs import RebalanceSchedule
+from dataclasses import dataclass
+from .structs import FactorDef
 
-# REBALANCE SCHEDULES
-
-
-class RebalPolicies:
-    # US month start
-    US_MONTH_START = RebalanceSchedule(
-        name="US_MS",
-        description="First business day of month (US Holidays)",
-        offset=CustomBusinessMonthBegin(calendar=USFederalHolidayCalendar())
-    )
-
-    # US month end
-    US_MONTH_END = RebalanceSchedule(
-        name="US_ME",
-        description="Last business day of month (US Holidays)",
-        offset=CustomBusinessMonthEnd(calendar=USFederalHolidayCalendar())
-    )
-
-
+# ----------------------------------
 # BACKTEST CONFIGURATION
+# ----------------------------------
 
 
 @dataclass(frozen=True)
@@ -36,8 +15,10 @@ class BacktestConfig:
     reinvest_proceeds: bool = True
     interest_rate: float = 0.0
 
+# ----------------------------------
 # FACTOR LENS CONFIGURATION
 # Following Two Sigma's Factor Lens setup
+# ----------------------------------
 
 
 @dataclass(frozen=True)
@@ -49,15 +30,7 @@ class FactorConfig:
     target_yearly_vol: float = 0.15  # 15% annualized volatility
     scale_factors: bool = True
 
-
-@dataclass(frozen=True)
-class FactorDef:
-    name: str
-    ticker: str
-    description: Optional[str] = None
-    parents: List[str] = field(default_factory=list)
-
-
+ # Factor Lens Universe Definitions
 FACTOR_LENS_UNIVERSE = [
     # Tier 1
     FactorDef("Equity", "VT", description="Vanguard Total World Stock ETF"),

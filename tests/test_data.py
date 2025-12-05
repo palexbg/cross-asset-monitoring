@@ -3,7 +3,8 @@ from backend.utils import dailify_riskfree, fetch_yfinance_data, get_returns, ge
 from backend.moments import compute_ewma_covar
 from pathlib import Path
 from backend.factors import FactorConstruction, FactorExposure
-from backend.config import FACTOR_LENS_UNIVERSE, BacktestConfig, RebalPolicies
+from backend.structs import RebalPolicies, FactorAnalysisMode
+from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 
 import numpy as np
@@ -49,8 +50,10 @@ if __name__ == "__main__":
              )
 
     # Dailify risk free
-
     close, risk_free_rate = dailify_riskfree(close, ticker='^IRX')
+
+    # for testing without RF
+    risk_free_rate = pd.Series(data=0.0, index=close.index)
 
     factor_engine = FactorConstruction(prices=close[factor_universe],
                                        risk_free_rate=risk_free_rate,
@@ -99,15 +102,15 @@ if __name__ == "__main__":
     exposure_engine = FactorExposure(
         risk_factors=factors_prices,
         nav=port_saa.nav.to_frame(),
-        risk_free_rate=risk_free_rate,          # <--- NEW: Pass RF here
-        analysis_mode='rolling',    # 'rolling' for time-series, 'full' for static
+        risk_free_rate=risk_free_rate,
+        analysis_mode=FactorAnalysisMode.ROLLING,
         lookback=120,
         smoothing_window=5
     )
 
     betas, t_stats, rsq = exposure_engine.run()
 
-    attribution = exposure_engine.decompose_daily_returns(
+    return_attribution = exposure_engine.decompose_daily_returns(
         port_saa.nav, factors_prices)
 
     print('a')

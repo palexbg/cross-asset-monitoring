@@ -1,13 +1,16 @@
 # Two Sigma factor lens
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Tuple, Union
-from backend.moments import compute_ewma_covar
-from backend.config import FactorDef, FactorConfig
-from backend.utils import get_returns
-from numba import njit
-
 import statsmodels.api as sm
+
+from .moments import compute_ewma_covar
+from .config import FactorDef, FactorConfig
+from .utils import get_returns
+from .structs import FactorAnalysisMode
+
+from numba import njit
+from typing import List, Optional, Tuple, Union
+
 
 # TODO:
 # *convert the rolling regression (with HAC) to full numba for speed, possibly also using EWMA covariance estimates here in order
@@ -36,7 +39,6 @@ class FactorConstruction():
         self.target_daily_vol = config.target_yearly_vol / \
             np.sqrt(self.days_in_year)
 
-        self.prices = prices
         self.rf = risk_free_rate.reindex(prices.index).ffill()
 
         # name to FactorDef mapping
@@ -93,7 +95,7 @@ class FactorConstruction():
             self.prices, lookback=5, method='log').fillna(0.0, limit=5)
 
         # Excess returns, fix the risk free rate here
-        rf_daily = np.log(1 + self.rf)
+        rf_daily = np.log1p(self.rf)
         rf_5d = rf_daily * 5
 
         ret1d_excess = ret1d_total.sub(rf_daily, axis=0).fillna(0.0, limit=5)
@@ -118,6 +120,8 @@ class FactorConstruction():
                     for p in self.mapping[f.name].parents
                 ]
 
+                parent_tickers = [self.ticker_map[p] for p in f.parents]
+
                 target_index = self.slicing_map[f.ticker]
 
                 sigma_xx = np.ascontiguousarray(
@@ -126,7 +130,7 @@ class FactorConstruction():
                     full_covmat[:, parent_indices][:, :, target_index])
                 y = ret1d_excess[ticker].to_numpy()
                 x = np.ascontiguousarray(
-                    ret1d_excess.iloc[:, parent_indices].to_numpy())
+                    ret1d_excess[parent_tickers].to_numpy())
 
                 resid_excess = _residualization_engine(
                     sigma_xx, sigma_xy, y, x
@@ -134,7 +138,7 @@ class FactorConstruction():
 
                 # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
                 # we have to do this because we are dealing with ETFs here, not pure long-short
-                output[name] = resid_excess + np.log(1+self.rf.values)
+                output[name] = resid_excess + np.log1p(self.rf.values)
 
         return output
 
@@ -168,7 +172,7 @@ class FactorExposure():
     def __init__(self,
                  risk_factors: pd.DataFrame,
                  nav: pd.DataFrame,
-                 analysis_mode: str = 'rolling',
+                 analysis_mode: FactorAnalysisMode = FactorAnalysisMode.ROLLING,
                  lookback: int = 120,
                  smoothing_window: int = 5,
                  risk_free_rate: Optional[pd.Series] = None,
@@ -182,12 +186,13 @@ class FactorExposure():
         else:
             self.rf = pd.Series(0.0, index=nav.index)
 
-        rf_daily = np.log(1 + self.rf)
+        rf_daily = np.log1p(self.rf)
         rf_5d = rf_daily * smoothing_window
 
-        if self.analysis_mode not in ['rolling', 'full']:
-            raise NotImplementedError('Type must be either rolling or static')
-        if self.analysis_mode == 'rolling' and lookback <= 0 or lookback is None:
+        if self.analysis_mode not in [FactorAnalysisMode.ROLLING, FactorAnalysisMode.FULL]:
+            raise NotImplementedError(
+                'Type must be either FactorAnalysisMode.ROLLING, FactorAnalysisMode.FULL')
+        if self.analysis_mode == FactorAnalysisMode.ROLLING and (lookback <= 0 or lookback is None):
             raise ValueError(
                 'If type is rolling, lookback has to be an integer bigger than 0')
 
@@ -207,7 +212,7 @@ class FactorExposure():
         # ['const', 'Equity', 'Rates', ...]
         cols = ['const'] + list(self.X_excess.columns)
 
-        if self.analysis_mode == 'full':
+        if self.analysis_mode == FactorAnalysisMode.FULL:
             # Static Regression
             betas, t_stats, rsq = self._calculate_one_regression(
                 self.X_excess, self.Y_excess)
@@ -289,7 +294,7 @@ class FactorExposure():
         common_idx = self.betas.index.intersection(
             daily_nav.index).intersection(daily_factors.index)
         r_f_simple = self.rf.loc[common_idx]              # simple daily RF
-        r_f_log = np.log(1 + r_f_simple)                  # daily log RF
+        r_f_log = np.log1p(r_f_simple)                  # daily log RF
 
         betas = self.betas.loc[common_idx]
         if 'const' in betas.columns:

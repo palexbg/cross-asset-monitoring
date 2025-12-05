@@ -69,8 +69,8 @@ class PortfolioStats:
         result = qs.reports.html(
             self.excess_returns,
             benchmark=bench_excess,
-            rf=0.0,  # Crucial: Set to 0
-            title=title + " (Excess Returns)",  # Label explicitly for clarity
+            rf=0.0,
+            title=title + " (Excess Returns)",
             output=output_mode,
             download_filename=output_filename
         )
