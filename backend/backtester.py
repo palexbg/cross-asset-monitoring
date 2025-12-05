@@ -30,6 +30,7 @@ class BacktestResult():
     weights: pd.DataFrame
     costs: pd.Series
     cash: pd.Series
+    portfolio_assets_prices: pd.DataFrame
 
     def gross_exposure(self) -> pd.Series:
         raise NotImplementedError("Gross exposure is not implemented yet")
@@ -106,7 +107,8 @@ def run_backtest(
         weights=pd.DataFrame(weights, index=prices.index,
                              columns=prices.columns),
         costs=pd.Series(costs, index=prices.index),
-        cash=pd.Series(cash, index=prices.index)
+        cash=pd.Series(cash, index=prices.index),
+        portfolio_assets_prices=prices
     )
 
     return output

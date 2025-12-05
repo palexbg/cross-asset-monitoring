@@ -4,8 +4,27 @@ from pandas.tseries.offsets import CustomBusinessMonthBegin
 from pandas.tseries.offsets import CustomBusinessMonthEnd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from typing import List, Optional
+from enum import Enum
 
 import pandas as pd
+
+
+@dataclass(frozen=True)
+class Asset:
+    name: str
+    Asset_Class: str
+    ticker: str
+    description: Optional[str] = None
+
+# ----------------------------------
+# FACTOR ANALYSIS MODES
+# ----------------------------------
+
+
+class FactorAnalysisMode(Enum):
+    ROLLING = "rolling"
+    FULL = "full"
+
 
 # ----------------------------------
 # REBALANCE SCHEDULES

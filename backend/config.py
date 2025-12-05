@@ -1,6 +1,15 @@
 from dataclasses import dataclass
 from .structs import FactorDef
 
+
+@dataclass(frozen=True)
+class RiskConfig:
+    cov_method: str = 'ewma'  # 'ewma' or 'sample'
+    span: int = 63  # days
+    returns_method: str = 'simple'  # 'log' or 'simple'
+    compute_on: str = 'all'
+    annualization_factor: int = 252
+
 # ----------------------------------
 # BACKTEST CONFIGURATION
 # ----------------------------------
@@ -29,6 +38,7 @@ class FactorConfig:
     cov_span: int = 750  # days
     target_yearly_vol: float = 0.15  # 15% annualized volatility
     scale_factors: bool = True
+
 
  # Factor Lens Universe Definitions
 FACTOR_LENS_UNIVERSE = [
