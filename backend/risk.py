@@ -2,7 +2,7 @@ from typing import Union, Optional
 import pandas as pd
 import numpy as np
 
-from .config import RiskConfig
+from .config import AssetRiskConfig
 from .utils import get_returns
 from .moments import compute_ewma_covar
 
@@ -15,7 +15,7 @@ class AssetRiskEngine():
     def __init__(self,
                  weights: Union[pd.Series, pd.DataFrame],
                  prices: pd.DataFrame,
-                 config: RiskConfig = RiskConfig(),
+                 config: AssetRiskConfig = AssetRiskConfig(),
                  compute_over_time: bool = False,
                  rebal_vec: Optional[pd.Series] = None,
                  annualize: bool = True

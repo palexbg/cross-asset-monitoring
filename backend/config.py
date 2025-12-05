@@ -3,7 +3,7 @@ from .structs import FactorDef
 
 
 @dataclass(frozen=True)
-class RiskConfig:
+class AssetRiskConfig:
     cov_method: str = 'ewma'  # 'ewma' or 'sample'
     span: int = 63  # days
     returns_method: str = 'simple'  # 'log' or 'simple'
