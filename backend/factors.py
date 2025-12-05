@@ -17,6 +17,41 @@ from typing import List, Optional, Tuple, Union
 #  to be consistent with the factor construction
 
 
+def triangulate_fx_factor(
+    fx_data: pd.DataFrame,
+    base_currency: str,
+    ccy_factor_data: pd.Series
+) -> pd.Series:
+    """
+    Creates a synthetic price series for the Foreign Currency factor relative to 
+    the portfolio's base currency, using currency triangulation if necessary.
+
+    Assumes that we have access to UDN prices (G10 vs USD proxy for a foreign currency factor
+    UDN is always quoted in dollars, so we just use the currency pair of the base currency to USD
+    to triangulate the foreign currency factor if the base currency is not USD.
+    """
+
+    # Base Case: USD Portfolio - we do nothing
+    if base_currency == 'USD':
+        return ccy_factor_data.copy()
+
+    # 2. Non-USD Case: Triangulation
+    # 1 Unit of Base = X Units of USD
+    pair_ticker = f"{base_currency}USD=X"
+
+    # Calculate Synthetic Price: (G10 / USD) / (EUR / USD) = G10 / EUR
+    # We use bfill() because FX data sometimes has gaps on non-trading days differs from ETFs
+    fx_price = fx_data[pair_ticker].reindex(
+        ccy_factor_data.index).ffill().bfill()
+
+    synthetic_factor_price = ccy_factor_data.div(fx_price)
+
+    # Rename for clarity in the engine
+    synthetic_factor_price.name = "ForeignCurrency"
+
+    return synthetic_factor_price
+
+
 class FactorConstruction():
     """
     Following the architecture of Two Sigma's Factor Lens
@@ -84,10 +119,9 @@ class FactorConstruction():
                 scaler = self.target_daily_vol / rolling_vol
                 factors[col] = factors[col] * scaler
 
+            # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
+            # we have to do this because we are dealing with ETFs here, not pure long-short
             factors[col] = factors[col] + np.log1p(self.rf.values)
-
-        # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
-        # we have to do this because we are dealing with ETFs here, not pure long-short
 
         return factors
 

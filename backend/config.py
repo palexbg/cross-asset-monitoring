@@ -2,6 +2,10 @@ from dataclasses import dataclass
 from .structs import FactorDef
 
 
+# ----------------------------------
+# ASSET RISK CONFIGURATION
+# ----------------------------------
+
 @dataclass(frozen=True)
 class AssetRiskConfig:
     cov_method: str = 'ewma'  # 'ewma' or 'sample'
@@ -51,6 +55,9 @@ FACTOR_LENS_UNIVERSE = [
               "Equity", "Rates"], description="iShares iBoxx $ Investment Grade Corporate Bond ETF"),
     FactorDef("Commodities", "GSG", parents=[
               "Equity", "Rates"], description="iShares S&P GSCI Commodity-Indexed Trust"),
+
+    FactorDef("ForeignCurrency", "UDN", parents=[
+              "Equity", "Rates"], description="(Triangulated) FX Factor G10 vs Base Currency"),
 
     # Tier 3 (Residualized against Tier 1 & 2)
     FactorDef("Value", "VTV", description="Vanguard Value Index Fund ETF Shares", parents=[

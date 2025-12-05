@@ -7,50 +7,6 @@ import warnings
 from .structs import RebalanceSchedule, Asset
 
 
-def normalize_prices_to_base_currency(
-    prices: pd.DataFrame,
-    asset_metadata: list[Asset],
-    fx_data: pd.DataFrame,
-    base_currency: str = 'USD'
-) -> pd.DataFrame:
-    """
-    Converts asset prices to portfolio base currency using provided FX data.
-    Handles direct (EURUSD) and inverse (1/USDEUR) rate conventions.
-    """
-    normalized_prices = prices.copy()
-
-    # Filter for assets that need to be converted
-    foreign_assets = [a for a in asset_metadata if a.currency != base_currency]
-
-    if not foreign_assets:
-        return normalized_prices
-
-    for asset in foreign_assets:
-        # 1. Try Direct Pair (e.g. Asset=EUR, Base=USD -> EURUSD=X)
-        direct_pair = f"{asset.currency}{base_currency}=X"
-        # 2. Try Inverse Pair (e.g. Asset=USD, Base=EUR -> EURUSD=X)
-        inverse_pair = f"{base_currency}{asset.currency}=X"
-
-        if direct_pair in fx_data.columns:
-            # Price_Base = Price_Local * (Local/Base)
-            fx_rate = fx_data[direct_pair]
-            normalized_prices[asset.ticker] = prices[asset.ticker] * fx_rate
-
-        elif inverse_pair in fx_data.columns:
-            # Price_Base = Price_Local * (1 / (Base/Local))
-            fx_rate = fx_data[inverse_pair]
-            # Avoid division by zero in FX data
-            fx_rate = fx_rate.replace(0.0, float('nan'))
-            normalized_prices[asset.ticker] = prices[asset.ticker] / fx_rate
-
-        else:
-            # Senior Dev Move: Log a warning or raise specific error, don't fail silently
-            raise ValueError(f"Missing FX pair for {asset.ticker}: "
-                             f"Need {direct_pair} or {inverse_pair}")
-
-    return normalized_prices
-
-
 def get_returns(prices: pd.DataFrame, lookback: int = 1, method: str = 'log') -> pd.DataFrame:
     # TODO: freq has to be a pandas thingy, need to give the list of those here
     # Resample the data to the desired frequency, use pandas offset aliases
@@ -97,15 +53,45 @@ def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.Datet
     return valid_dates, rebal_vec
 
 
-def dailify_riskfree(prices: pd.DataFrame, ticker: str = '^IRX') -> pd.DataFrame:
-    if ticker in prices.columns:
-        prices[ticker] = (prices[ticker] / 100.0) / 252.0
-        prices.rename(columns={ticker: 'RiskFreeRate'}, inplace=True)
-    else:
-        warnings.warn(
-            f"Ticker {ticker} not found in prices columns.", RuntimeWarning)
+def dailify_risk_free(
+    prices: pd.DataFrame,
+    base_currency: str,
+    days_in_year: int = 252
+) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Hard-coded risk-free selection and processing by base currency.
 
-    return prices, prices['RiskFreeRate']
+    Assumptions:
+      USD -> ^IRX     (annualized % yield index)
+      EUR -> EL4W.DE  (money market ETF price series)
+      CHF -> CSBGC3.SW (short Swiss gov ETF price series)
+
+    Output:
+      Adds 'RiskFreeRate' as a daily simple return series.
+    """
+
+    ccy = base_currency.upper().strip()
+    out = prices.copy()
+
+    if ccy == "USD":
+        # ^IRX is an annualized percent yield
+        rf = (out["^IRX"] / 100.0) / days_in_year
+
+    elif ccy == "EUR":
+        # ETF price -> daily simple return
+        rf = out["EL4W.DE"].pct_change()
+
+    elif ccy == "CHF":
+        # ETF price -> daily simple return
+        rf = out["CSBGC3.SW"].pct_change()
+    else:
+        raise ValueError("base_currency must be one of: USD, EUR, CHF")
+
+    rf = rf.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    rf.name = "RiskFreeRate"
+    out["RiskFreeRate"] = rf
+
+    return out, rf
 
 
 def normalize_prices_to_base_currency(

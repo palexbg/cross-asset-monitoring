@@ -12,7 +12,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class Asset:
     name: str
-    Asset_Class: str
+    asset_class: str
     ticker: str
     currency: str = "USD"
     description: Optional[str] = None

@@ -6,3 +6,4 @@ todo.md
 *.txt
 *.html
 clipboard.py
+examples/__pycache__

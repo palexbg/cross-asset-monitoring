@@ -1,53 +1,60 @@
 from backend.perfstats import PortfolioStats
-from backend.utils import dailify_riskfree, get_valid_rebal_vec_dates, normalize_prices_to_base_currency
+from backend.utils import dailify_risk_free, get_valid_rebal_vec_dates, normalize_prices_to_base_currency
 
 from pathlib import Path
-from backend.factors import FactorConstruction, FactorExposure
+from backend.factors import FactorConstruction, FactorExposure, triangulate_fx_factor
 from backend.structs import RebalPolicies, FactorAnalysisMode, Asset
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
 from backend.data import YFinanceDataFetcher as yf
 
-
-import numpy as np
 import pandas as pd
 
 if __name__ == "__main__":
 
-    portfolio_base_ccy = 'USD'
+    portfolio_base_ccy = 'USD'  # 'EUR'
 
-    investment_universe_metadata = [Asset(name='SPY', Asset_Class='Equity', ticker='SPY', description='S&P 500 ETF', currency='USD'),
-                                    Asset(name='IEF', Asset_Class='Rates', ticker='IEF', currency='USD',
+    investment_universe_metadata = [Asset(name='SPY', asset_class='Equity', ticker='SPY', description='S&P 500 ETF', currency='USD'),
+                                    Asset(name='IEF', asset_class='Rates', ticker='IEF', currency='USD',
                                           description='7-10 Year Treasury ETF'),
-                                    Asset(name='LQD', Asset_Class='Credit', ticker='LQD', currency='USD',
+                                    Asset(name='LQD', asset_class='Credit', ticker='LQD', currency='USD',
                                           description='Investment Grade Corporate Bond ETF'),
-                                    Asset(name='HYG', Asset_Class='Credit', ticker='HYG', currency='USD',
+                                    Asset(name='HYG', asset_class='Credit', ticker='HYG', currency='USD',
                                           description='High Yield Corporate Bond ETF'),
-                                    Asset(name='SHY', Asset_Class='Rates', ticker='SHY', currency='USD',
+                                    Asset(name='SHY', asset_class='Rates', ticker='SHY', currency='USD',
                                           description='1-3 Year Treasury ETF'),
-                                    Asset(name='GLD', Asset_Class='Commodities', currency='USD',
+                                    Asset(name='GLD', asset_class='Commodities', currency='USD',
                                           ticker='GLD', description='Gold ETF'),
-                                    Asset(name='BND', Asset_Class='Bond', ticker='BND', currency='USD',
+                                    Asset(name='BND', asset_class='Bond', ticker='BND', currency='USD',
                                           description='Total Bond Market ETF'),
-                                    Asset(name='^IRX', Asset_Class='Rates', ticker='^IRX',
-                                          description='13 Week Treasury Bill', currency='USD')]
+                                    Asset(name='^IRX', asset_class='Rates', ticker='^IRX',
+                                          description='13 Week Treasury Bill', currency='USD'),
+                                    Asset(name='EL4W.DE', asset_class='Rates', ticker='EL4W.DE', currency='EUR',
+                                          description='Germany Money Market'),
+                                    Asset(name='CSBGC3.SW', asset_class='Rates', ticker='CSBGC3.SW', currency='CHF',
+                                          description='Swiss Domestic Short Term Bond')]
 
-    fx_universe_metadata = [Asset(name='EURUSD=X', Asset_Class='FX', ticker='EURUSD=X',
+    fx_universe_metadata = [Asset(name='EURUSD=X', asset_class='FX', ticker='EURUSD=X',
                                   description='Euro to US Dollar Exchange Rate', currency='USD'),
-                            Asset(name='CHFUSD=X', Asset_Class='FX', ticker='CHFUSD=X',
-                                  description='Swiss Franc to US Dollar Exchange Rate', currency='USD')]
+                            Asset(name='CHFUSD=X', asset_class='FX', ticker='CHFUSD=X',
+                                  description='Swiss Franc to US Dollar Exchange Rate', currency='USD'),
+                            Asset(name='CHFEUR=X', asset_class='FX', ticker='CHFEUR=X',
+                                  description='Swiss Franc to Euro Exchange Rate', currency='EUR')]
 
-    factor_universe_metadata = [Asset(name='VT', Asset_Class='EquityFactor', ticker='VT', description='Vanguard Total World Stock ETF', currency='USD'),
-                                Asset(name='IEF', Asset_Class='RatesFactor', ticker='IEF',
+    factor_universe_metadata = [Asset(name='VT', asset_class='EquityFactor', ticker='VT', description='Vanguard Total World Stock ETF', currency='USD'),
+                                Asset(name='IEF', asset_class='RatesFactor', ticker='IEF',
                                       description='iShares 7-10 Year Treasury Bond ETF', currency='USD'),
-                                Asset(name='LQD', Asset_Class='CreditFactor', ticker='LQD',
+                                Asset(name='LQD', asset_class='CreditFactor', ticker='LQD',
                                       description='iShares iBoxx $ Investment Grade Corporate Bond ETF', currency='USD'),
-                                Asset(name='GSG', Asset_Class='CommoditiesFactor', ticker='GSG',
+                                Asset(name='GSG', asset_class='CommoditiesFactor', ticker='GSG',
                                       description='iShares S&P GSCI Commodity-Indexed Trust', currency='USD'),
-                                Asset(name='VTV', Asset_Class='ValueFactor', ticker='VTV',
+                                Asset(name='VTV', asset_class='ValueFactor', ticker='VTV',
                                       description='Vanguard Value Index Fund ETF Shares', currency='USD'),
-                                Asset(name='MTUM', Asset_Class='MomentumFactor', ticker='MTUM', description='iShares MSCI USA Momentum Factor ETF', currency='USD')]
+                                Asset(name='MTUM', asset_class='MomentumFactor', ticker='MTUM',
+                                      description='iShares MSCI USA Momentum Factor ETF', currency='USD'),
+                                Asset(name='UDN', asset_class='FXFactor', ticker='UDN',
+                                      description='Adjusted Invesco DB US Dollar Index Bearish Fund', currency='USD')]
 
     asset_tickers = list(
         {asset.ticker: asset for asset in investment_universe_metadata}.keys())
@@ -77,7 +84,19 @@ if __name__ == "__main__":
     )
 
     # Dailify risk free
-    close, risk_free_rate = dailify_riskfree(close, ticker='^IRX')
+    close, risk_free_rate = dailify_risk_free(
+        close, base_currency=portfolio_base_ccy)
+
+    # Handle the FX factor preconstruction
+    fx_factor_ticker = [
+        i.name for i in factor_universe_metadata if i.asset_class == "FXFactor"]
+    fx_factor_prices = triangulate_fx_factor(
+        fx_data=close[fx_tickers],
+        base_currency=portfolio_base_ccy,
+        ccy_factor_data=close[fx_factor_ticker]
+    )
+
+    close[fx_factor_ticker] = fx_factor_prices
 
     # for testing without RF
     # risk_free_rate = pd.Series(data=0.0, index=close.index)
@@ -153,5 +172,3 @@ if __name__ == "__main__":
     ).run()
 
     print("Analyzing Factor Risk contributions...")
-
-    print('a')
