@@ -200,6 +200,7 @@ class FactorExposure():
         self.betas = None
         self.t_stats = None
         self.Rsquared = None
+        self.resid = None
 
         # compute 5 days rolling returns to smoothen out potential asynchronicity in factors
         self.Y_excess = get_returns(nav, smoothing_window, method='log').sub(
@@ -214,14 +215,15 @@ class FactorExposure():
 
         if self.analysis_mode == FactorAnalysisMode.FULL:
             # Static Regression
-            betas, t_stats, rsq = self._calculate_one_regression(
+            betas, t_stats, rsq, resid_var = self._calculate_one_regression(
                 self.X_excess, self.Y_excess)
 
             # Broadcast to full timeframe
-            self.betas = pd.DataFrame(data=betas.values.reshape(1, -1),
-                                      index=[self.X_excess.index[-1]],
-                                      columns=cols
-                                      )
+            self.betas = pd.DataFrame(
+                data=betas.values.reshape(1, -1),
+                index=[self.X_excess.index[-1]],
+                columns=cols
+            )
 
             self.t_stats = pd.DataFrame(
                 data=t_stats.values.reshape(1, -1),
@@ -234,10 +236,17 @@ class FactorExposure():
                 columns=['Rsquared']
             )
 
+            self.resid = pd.DataFrame(
+                data=resid_var,
+                index=[self.X_excess.index[-1]],
+                columns=['IdiosyncraticRisk']
+            )
+
         else:  # rolling
             rolling_betas = []
             rolling_tstats = []
             rolling_rsq = []
+            rolling_resid = []
 
             # Use the Excess Returns data
             X_data = self.X_excess
@@ -260,14 +269,15 @@ class FactorExposure():
                     rolling_betas.append(np.full(len(cols), np.nan))
                     rolling_tstats.append(np.full(len(cols), np.nan))
                     rolling_rsq.append(np.nan)
+                    rolling_resid.append(np.nan)
                 else:
                     # Run Regression
-                    betas, t_stats, rsq = self._calculate_one_regression(
+                    betas, t_stats, rsq, resid_var = self._calculate_one_regression(
                         X_window, Y_window)
                     rolling_betas.append(betas.values)
                     rolling_tstats.append(t_stats.values)
                     rolling_rsq.append(rsq)
-
+                    rolling_resid.append(resid_var)
             self.betas = pd.DataFrame(
                 data=np.vstack(rolling_betas),
                 index=X_data.index[self.lookback:],
@@ -286,7 +296,13 @@ class FactorExposure():
                 columns=['Rsquared']
             ).reindex(X_data.index)
 
-        return self.betas, self.t_stats, self.Rsquared
+            self.resid = pd.DataFrame(
+                data=np.array(rolling_resid),
+                index=X_data.index[self.lookback:],
+                columns=['IdiosyncraticRisk']
+            ).reindex(X_data.index)
+
+        return self.betas, self.t_stats, self.Rsquared, self.resid
 
     def decompose_daily_returns(self, daily_nav: pd.DataFrame, daily_factors: pd.DataFrame) -> pd.DataFrame:
 
@@ -332,4 +348,5 @@ class FactorExposure():
         betas = results.params
         t_stats = results.tvalues
         rsq = results.rsquared
-        return betas, t_stats, rsq
+        resid = results.mse_resid
+        return betas, t_stats, rsq, resid

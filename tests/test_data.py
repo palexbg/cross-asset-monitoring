@@ -125,7 +125,7 @@ if __name__ == "__main__":
         smoothing_window=5
     )
 
-    betas, t_stats, rsq = exposure_engine.run()
+    betas, t_stats, rsq, resid = exposure_engine.run()
 
     print("Analyzing Return contributions...")
     return_attribution = exposure_engine.decompose_daily_returns(
