@@ -1,5 +1,4 @@
 from numba import njit
-from backend.utils import freq2days
 import numpy as np
 import pandas as pd
 import pdb

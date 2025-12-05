@@ -1,68 +1,80 @@
 from backend.perfstats import PortfolioStats
-from backend.utils import dailify_riskfree, fetch_yfinance_data, get_returns, get_valid_rebal_vec_dates
-from backend.moments import compute_ewma_covar
+from backend.utils import dailify_riskfree, get_valid_rebal_vec_dates, normalize_prices_to_base_currency
+
 from pathlib import Path
 from backend.factors import FactorConstruction, FactorExposure
 from backend.structs import RebalPolicies, FactorAnalysisMode, Asset
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
+from backend.data import YFinanceDataFetcher as yf
+
 
 import numpy as np
 import pandas as pd
 
 if __name__ == "__main__":
 
-    investment_universe = [Asset(name='SPY', Asset_Class='Equity', ticker='SPY', description='S&P 500 ETF'),
-                           Asset(name='IEF', Asset_Class='Rates', ticker='IEF',
-                                 description='7-10 Year Treasury ETF'),
-                           Asset(name='LQD', Asset_Class='Credit', ticker='LQD',
-                                 description='Investment Grade Corporate Bond ETF'),
-                           Asset(name='HYG', Asset_Class='Credit', ticker='HYG',
-                                 description='High Yield Corporate Bond ETF'),
-                           Asset(name='SHY', Asset_Class='Rates', ticker='SHY',
-                                 description='1-3 Year Treasury ETF'),
-                           Asset(name='GLD', Asset_Class='Commodities',
-                                 ticker='GLD', description='Gold ETF'),
-                           Asset(name='BND', Asset_Class='Bond', ticker='BND',
-                                 description='Total Bond Market ETF'),
-                           Asset(name='^IRX', Asset_Class='Rates', ticker='^IRX', description='13 Week Treasury Bill')]
+    portfolio_base_ccy = 'USD'
 
-    # should pull that from FACTOR_LENS_UNIVERSE
-    factor_tickers = {
-        'VT': 'EquityFactor',
-        'IEF': 'RatesFactor',
-        'LQD': 'CreditFactor',
-        'GSG': 'CommoditiesFactor',
-        # 'HYG': 'Credit2',
-        # 'DBC': 'Commodities2',
-        # 'EEM': 'Emerging',
-        # 'TIP': 'Inflation',
-        'VTV': 'ValueFactor',
-        'MTUM': 'MomentumFactor',
-        # 'VLUE': 'Value2',
-        # 'QUAL': 'Quality',
-        # 'USMV': 'LowVol'
-    }
+    investment_universe_metadata = [Asset(name='SPY', Asset_Class='Equity', ticker='SPY', description='S&P 500 ETF', currency='USD'),
+                                    Asset(name='IEF', Asset_Class='Rates', ticker='IEF', currency='USD',
+                                          description='7-10 Year Treasury ETF'),
+                                    Asset(name='LQD', Asset_Class='Credit', ticker='LQD', currency='USD',
+                                          description='Investment Grade Corporate Bond ETF'),
+                                    Asset(name='HYG', Asset_Class='Credit', ticker='HYG', currency='USD',
+                                          description='High Yield Corporate Bond ETF'),
+                                    Asset(name='SHY', Asset_Class='Rates', ticker='SHY', currency='USD',
+                                          description='1-3 Year Treasury ETF'),
+                                    Asset(name='GLD', Asset_Class='Commodities', currency='USD',
+                                          ticker='GLD', description='Gold ETF'),
+                                    Asset(name='BND', Asset_Class='Bond', ticker='BND', currency='USD',
+                                          description='Total Bond Market ETF'),
+                                    Asset(name='^IRX', Asset_Class='Rates', ticker='^IRX',
+                                          description='13 Week Treasury Bill', currency='USD')]
 
-    factor_universe = list(factor_tickers.keys())
-    tickers_download = [
-        asset.ticker for asset in investment_universe] + factor_universe
+    fx_universe_metadata = [Asset(name='EURUSD=X', Asset_Class='FX', ticker='EURUSD=X',
+                                  description='Euro to US Dollar Exchange Rate', currency='USD'),
+                            Asset(name='CHFUSD=X', Asset_Class='FX', ticker='CHFUSD=X',
+                                  description='Swiss Franc to US Dollar Exchange Rate', currency='USD')]
 
-    if Path('etf_data.csv').exists():
-        data = pd.read_csv('etf_data.csv', parse_dates=['Date'])
+    factor_universe_metadata = [Asset(name='VT', Asset_Class='EquityFactor', ticker='VT', description='Vanguard Total World Stock ETF', currency='USD'),
+                                Asset(name='IEF', Asset_Class='RatesFactor', ticker='IEF',
+                                      description='iShares 7-10 Year Treasury Bond ETF', currency='USD'),
+                                Asset(name='LQD', Asset_Class='CreditFactor', ticker='LQD',
+                                      description='iShares iBoxx $ Investment Grade Corporate Bond ETF', currency='USD'),
+                                Asset(name='GSG', Asset_Class='CommoditiesFactor', ticker='GSG',
+                                      description='iShares S&P GSCI Commodity-Indexed Trust', currency='USD'),
+                                Asset(name='VTV', Asset_Class='ValueFactor', ticker='VTV',
+                                      description='Vanguard Value Index Fund ETF Shares', currency='USD'),
+                                Asset(name='MTUM', Asset_Class='MomentumFactor', ticker='MTUM', description='iShares MSCI USA Momentum Factor ETF', currency='USD')]
+
+    asset_tickers = list(
+        {asset.ticker: asset for asset in investment_universe_metadata}.keys())
+    factor_tickers = list(
+        {asset.ticker: asset for asset in factor_universe_metadata}.keys())
+    fx_tickers = list(
+        {asset.ticker: asset for asset in fx_universe_metadata}.keys())
+
+    tickers_download = list(set(asset_tickers + factor_tickers + fx_tickers))
+
+    if Path('etf_close_prices.csv').exists():
+        close = pd.read_csv('etf_close_prices.csv', parse_dates=[
+                            'Date']).set_index('Date')
     else:
-        data = fetch_yfinance_data(
+        data_engine = yf()
+        close = data_engine.fetch_close_prices(
             ticker_symbol=tickers_download,
             start_date='2015-12-31',
             end_date='2025-11-30')
 
-    close = (data
-             .loc[data["Field"] == 'Close']
-             .set_index(['Date', 'Ticker'])
-             ['Value']
-             .unstack()
-             )
+    # Normalize series to local currency
+    close = normalize_prices_to_base_currency(
+        close_data=close,
+        asset_metadata=investment_universe_metadata,
+        fx_data=close[fx_tickers],
+        base_currency=portfolio_base_ccy
+    )
 
     # Dailify risk free
     close, risk_free_rate = dailify_riskfree(close, ticker='^IRX')
@@ -70,7 +82,7 @@ if __name__ == "__main__":
     # for testing without RF
     # risk_free_rate = pd.Series(data=0.0, index=close.index)
 
-    factor_engine = FactorConstruction(prices=close[factor_universe],
+    factor_engine = FactorConstruction(prices=close[factor_tickers],
                                        risk_free_rate=risk_free_rate,
                                        factor_definition=FACTOR_LENS_UNIVERSE)
 

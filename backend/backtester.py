@@ -80,12 +80,9 @@ def run_backtest(
         if not np.issubdtype(rebal_vec.dtype, np.bool_):
             raise TypeError('rebal_vec must be boolean')
         is_rebal_day = rebal_vec.to_numpy()
-    elif rebal_freq is not None:
+    else:
         raise NotImplementedError(
             "Calendar based rebal is not implemented yet")
-    else:  # try to infer it from the target weights. Rebalancing is whenever all bigger than 0
-        weight_delta = target_weights.diff().abs().sum(axis=1)
-        is_rebal_day = (weight_delta > 1e-6).to_numpy(dtype=bool)
 
     # Numba works with numpy arrays, convert everything beforehand
     nav, holdings, weights, cash, costs = backtest_kernel(

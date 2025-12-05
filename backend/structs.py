@@ -14,7 +14,9 @@ class Asset:
     name: str
     Asset_Class: str
     ticker: str
+    currency: str = "USD"
     description: Optional[str] = None
+
 
 # ----------------------------------
 # FACTOR ANALYSIS MODES

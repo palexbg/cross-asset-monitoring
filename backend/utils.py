@@ -1,58 +1,54 @@
 from typing import Tuple
-import yfinance
+
 import pandas as pd
 import numpy as np
 import warnings
 
-from .structs import RebalanceSchedule
+from .structs import RebalanceSchedule, Asset
 
 
-def fetch_yfinance_data(ticker_symbol: list[str],
-                        start_date: str = '2015-12-31',
-                        end_date: str = '2024-12-31',
-                        store_data: bool = True) -> pd.DataFrame:
+def normalize_prices_to_base_currency(
+    prices: pd.DataFrame,
+    asset_metadata: list[Asset],
+    fx_data: pd.DataFrame,
+    base_currency: str = 'USD'
+) -> pd.DataFrame:
     """
-    Fetches historical ETF data for the given ticker symbols.
-    Args:
-        ticker_symbol (list[str]): List of ETF ticker symbols.
-        start_date (str): Start date for fetching data in 'YYYY-MM-DD' format.
-        end_date (str): End date for fetching data in 'YYYY-MM-DD' format.
-        store_data (bool): Whether to store the fetched data as a CSV file.
-        Returns: pandas.DataFrame: DataFrame containing the historical ETF data."""
+    Converts asset prices to portfolio base currency using provided FX data.
+    Handles direct (EURUSD) and inverse (1/USDEUR) rate conventions.
+    """
+    normalized_prices = prices.copy()
 
-    data = yfinance.download(tickers=ticker_symbol,
-                             start=start_date,
-                             end=end_date,
-                             ignore_tz=True,
-                             auto_adjust=True)
+    # Filter for assets that need to be converted
+    foreign_assets = [a for a in asset_metadata if a.currency != base_currency]
 
-    data = (
-        data
-        .stack(level=1, future_stack=True)
-        .reset_index()
-        .melt(
-            id_vars=['Date', 'Ticker'],
-            var_name='Field',
-            value_name='Value',
-        )
-    )
+    if not foreign_assets:
+        return normalized_prices
 
-    if store_data:
-        data.to_csv('etf_data.csv', index=False)
+    for asset in foreign_assets:
+        # 1. Try Direct Pair (e.g. Asset=EUR, Base=USD -> EURUSD=X)
+        direct_pair = f"{asset.currency}{base_currency}=X"
+        # 2. Try Inverse Pair (e.g. Asset=USD, Base=EUR -> EURUSD=X)
+        inverse_pair = f"{base_currency}{asset.currency}=X"
 
-    return data
+        if direct_pair in fx_data.columns:
+            # Price_Base = Price_Local * (Local/Base)
+            fx_rate = fx_data[direct_pair]
+            normalized_prices[asset.ticker] = prices[asset.ticker] * fx_rate
 
+        elif inverse_pair in fx_data.columns:
+            # Price_Base = Price_Local * (1 / (Base/Local))
+            fx_rate = fx_data[inverse_pair]
+            # Avoid division by zero in FX data
+            fx_rate = fx_rate.replace(0.0, float('nan'))
+            normalized_prices[asset.ticker] = prices[asset.ticker] / fx_rate
 
-def freq2days(freq):
+        else:
+            # Senior Dev Move: Log a warning or raise specific error, don't fail silently
+            raise ValueError(f"Missing FX pair for {asset.ticker}: "
+                             f"Need {direct_pair} or {inverse_pair}")
 
-    output = {
-        "B": 252,
-        "M": 12,
-        "D": 365.25,
-        "W": 52
-    }
-
-    return output.get(freq, f"Date conversion key not found, it must be one of {list(output.keys())}.")
+    return normalized_prices
 
 
 def get_returns(prices: pd.DataFrame, lookback: int = 1, method: str = 'log') -> pd.DataFrame:
@@ -110,3 +106,47 @@ def dailify_riskfree(prices: pd.DataFrame, ticker: str = '^IRX') -> pd.DataFrame
             f"Ticker {ticker} not found in prices columns.", RuntimeWarning)
 
     return prices, prices['RiskFreeRate']
+
+
+def normalize_prices_to_base_currency(
+    close_data: pd.DataFrame,  # includes everything
+    # includes just the assets or whatever needs to potentially be converted. Everything is Asset python dataclass
+    asset_metadata: list[Asset],
+    fx_data: pd.DataFrame,
+    base_currency: str = 'USD'
+) -> pd.DataFrame:
+    """
+    Converts asset prices to portfolio base currency.
+    """
+    normalized_prices = close_data.copy()
+
+    # Assets in foreign currency
+    foreign_assets = [a for a in asset_metadata if a.currency != base_currency]
+
+    if not foreign_assets:
+        return normalized_prices
+
+    for asset in foreign_assets:
+
+        direct_pair = f"{asset.currency}{base_currency}=X"
+        inverse_pair = f"{base_currency}{asset.currency}=X"
+
+        if direct_pair in fx_data.columns:
+            # Price_Base = Price_Local * (Local/Base)
+            fx_rate = fx_data[direct_pair]
+            normalized_prices[asset.ticker] = close_data[asset.ticker] * fx_rate
+
+        elif inverse_pair in fx_data.columns:
+
+            fx_rate = fx_data[inverse_pair]
+
+            # if there is zero, better to produce a nan
+            fx_rate = fx_rate.replace(0.0, float('nan'))
+
+            normalized_prices[asset.ticker] = close_data[asset.ticker] / fx_rate
+        else:
+            # raise a flag if a pair is missing
+            raise ValueError(f"Missing FX pair for {asset.ticker}: "
+                             f"Need {direct_pair} or {inverse_pair}")
+
+    return normalized_prices

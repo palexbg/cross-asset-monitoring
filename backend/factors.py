@@ -74,16 +74,20 @@ class FactorConstruction():
             ret1d_excess=ret1d_excess,
             full_covmat=full_covmat5d
         )
-        # scale the residualized factors as their variance is very low.
+        # scale the residualized factors rollingly (later on we add exponentially)
         # That way the betas later on are comparable and interpretable
-        for f in self.factor_definition:
-            if f.parents and self.scale_factors:
-                col = f.name
-                current_std = factors[col].std()
 
-                if current_std > 1e-6:
-                    scaler = self.target_daily_vol / current_std
-                    factors[col] = factors[col] * scaler
+        for f in self.factor_definition:
+            col = f.name
+            if f.parents and self.scale_factors:
+                rolling_vol = pd.Series(factors[col]).rolling(window=60).std()
+                scaler = self.target_daily_vol / rolling_vol
+                factors[col] = factors[col] * scaler
+
+            factors[col] = factors[col] + np.log1p(self.rf.values)
+
+        # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
+        # we have to do this because we are dealing with ETFs here, not pure long-short
 
         return factors
 
@@ -107,13 +111,13 @@ class FactorConstruction():
     def _orthogonalize(self, ret1d_total, ret1d_excess, full_covmat):
 
         output = pd.DataFrame(
-            index=ret1d_total.index, columns=self.ticker_map.keys())
+            index=ret1d_excess.index, columns=self.ticker_map.keys())
 
         for f in self.factor_definition:
             ticker = f.ticker
             name = f.name
             if not f.parents:  # no parents, raw factor as per the hierarchy
-                output[name] = ret1d_total[ticker]
+                output[name] = ret1d_excess[ticker]
             else:
                 parent_indices = [
                     self.slicing_map[self.ticker_map[p]]
@@ -136,9 +140,7 @@ class FactorConstruction():
                     sigma_xx, sigma_xy, y, x
                 )
 
-                # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
-                # we have to do this because we are dealing with ETFs here, not pure long-short
-                output[name] = resid_excess + np.log1p(self.rf.values)
+                output[name] = resid_excess
 
         return output
 
