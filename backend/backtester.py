@@ -199,12 +199,11 @@ def backtest_kernel(
             weights_history[t, :] = 0.0
 
         # some warnings
-        if current_cash < 0.0:
-            warnings.warn("Cash balance is negative", RuntimeWarning)
+        # if current_cash < 0.0:
+        #     print('Warning: Cash is negative')
         if current_nav < 0.0:
-            warnings.warn("NAV is negative", RuntimeWarning)
-        if np.any(current_holdings < 0.0):
-            warnings.warn("Holdings contain negative positions",
-                          RuntimeWarning)
+            raise ValueError("NAV is negative")
+        # if np.any(current_holdings < 0.0):
+        #     print("Warning: Holdings contain negative positions")
 
     return nav_history, holdings_history, weights_history, cash_history, costs_history

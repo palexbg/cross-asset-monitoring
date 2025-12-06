@@ -2,13 +2,234 @@ from typing import Union, Optional
 import pandas as pd
 import numpy as np
 
-from .config import AssetRiskConfig
+from .config import AssetRiskConfig, FactorRiskConfig
 from .utils import get_returns
 from .moments import compute_ewma_covar
 
 
 class FactorRiskEngine():
-    pass
+    def __init__(
+        self,
+        betas: Union[pd.Series, pd.DataFrame],
+        factor_prices: Optional[pd.DataFrame] = None,
+        residual_var: Optional[pd.Series] = None,
+        config: FactorRiskConfig = FactorRiskConfig(),
+        compute_over_time: bool = False,
+        rebal_vec: Optional[pd.Series] = None,
+        annualize: bool = True,
+    ):
+        self.betas = betas
+        self.factor_prices = factor_prices
+        self.residual_var = residual_var
+        self.config = config
+        self.compute_over_time = compute_over_time
+        self.rebal_vec = rebal_vec
+        self.annualize = annualize
+
+        self._returns: Optional[pd.DataFrame] = None
+        self._cov_tensor: Optional[np.ndarray] = None
+
+    @property
+    def returns(self) -> pd.DataFrame:
+        if self._returns is None:
+            self._returns = get_returns(
+                self.factor_prices,
+                method=self.config.returns_method
+            ).dropna()
+        return self._returns
+
+    @property
+    def cov_tensor(self) -> np.ndarray:
+        if self._cov_tensor is None:
+            self._cov_tensor = compute_ewma_covar(
+                returns=self.returns,
+                span=self.config.span,
+                annualize=False
+            )
+        return self._cov_tensor
+
+    @property
+    def latest_covmat(self) -> pd.DataFrame:
+        cov = self.cov_tensor[-1]
+        cols = self.returns.columns
+        return pd.DataFrame(cov, index=cols, columns=cols)
+
+    @staticmethod
+    def _drop_const(beta_obj: Union[pd.Series, pd.DataFrame]):
+        if isinstance(beta_obj, pd.Series):
+            return beta_obj.drop(labels=["const"])
+        return beta_obj.drop(columns=["const"])
+
+    @staticmethod
+    def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
+        out = df.copy()
+        out["Date"] = dt
+        out["Factor"] = out.index
+        return (
+            out.reset_index(drop=True)
+            .set_index(["Date", "Factor"])
+            .sort_index()
+        )
+
+    @staticmethod
+    def compute_factor_risk_contribution(
+        betas: Union[pd.Series, np.ndarray],
+        covmat: Union[pd.DataFrame, np.ndarray],
+        annualize: bool = False,
+        annualization_factor: int = 252
+    ) -> tuple[pd.DataFrame, float]:
+        """
+        """
+        cov = covmat.values if isinstance(covmat, pd.DataFrame) else covmat
+
+        if isinstance(betas, pd.Series):
+            b = betas.values
+            idx = betas.index
+        else:
+            b = np.asarray(betas)
+            idx = pd.Index(range(len(b)))
+
+        sys_var = float(b.T @ cov @ b)
+        sys_vol = np.sqrt(sys_var)
+
+        if sys_vol == 0 or not np.isfinite(sys_vol):
+            nan_df = pd.DataFrame({
+                "beta": np.full(len(idx), np.nan),
+                "mctr": np.full(len(idx), np.nan),
+                "ctr": np.full(len(idx), np.nan),
+                "ctr_pct": np.full(len(idx), np.nan),
+            }, index=idx)
+            return nan_df, np.nan
+
+        v = cov @ b
+        mctr = v / sys_vol
+        ctr = b * mctr
+        ctr_pct = ctr / sys_vol
+
+        if annualize:
+            scale = np.sqrt(annualization_factor)
+            sys_vol = sys_vol * scale
+            mctr = mctr * scale
+            ctr = ctr * scale
+            # ctr_pct unchanged
+
+        out = pd.DataFrame({
+            "beta": b,
+            "mctr": mctr,
+            "ctr": ctr,
+            "ctr_pct": ctr_pct
+        }, index=idx)
+
+        return out, sys_vol
+
+    def run(self) -> dict:
+        B = self._drop_const(self.betas)
+
+        # Factors and betas must align, as we often use warmup period to build factors while betas keep NANs
+        B = B.loc[B.index.intersection(self.returns.index)]
+
+        # just using latest
+        if not self.compute_over_time:
+            cov_last = self.latest_covmat
+
+            if isinstance(B, pd.Series):
+                rc, sys_vol = self.compute_factor_risk_contribution(
+                    B, cov_last,
+                    annualize=self.annualize,
+                    annualization_factor=self.config.annualization_factor
+                )
+                idio_vol = np.nan
+                if self.residual_var is not None:
+                    idio_var = float(self.residual_var.iloc[-1])
+                    idio_vol = np.sqrt(idio_var)
+                    if self.annualize:
+                        idio_vol *= np.sqrt(self.config.annualization_factor)
+
+                return {
+                    "latest_factor_rc": rc,
+                    "latest_systematic_vol": sys_vol,
+                    "latest_idio_vol": idio_vol
+                }
+
+            # over time, we slice the weights vector to be at the rebal dates and calc only those
+            last_date = B.index[-1]
+            rc, sys_vol = self.compute_factor_risk_contribution(
+                B.iloc[-1],
+                cov_last,
+                annualize=self.annualize,
+                annualization_factor=self.config.annualization_factor
+            )
+            rc = self._attach_date_index(rc, last_date)
+
+            idio_vol = np.nan
+            if self.residual_var is not None and last_date in self.residual_var.index:
+                idio_var = float(self.residual_var.loc[last_date])
+                idio_vol = np.sqrt(idio_var)
+                if self.annualize:
+                    idio_vol *= np.sqrt(self.config.annualization_factor)
+
+            return {
+                "latest_factor_rc": rc,
+                "latest_systematic_vol": sys_vol,
+                "latest_idio_vol": idio_vol
+            }
+
+        # over time, we slice the weights vector to be at the rebal dates and calc only those
+        if self.rebal_vec is not None:
+            B = B.loc[self.rebal_vec]
+
+        cov_dates = self.returns.index
+        factors = self.returns.columns
+
+        rows = []
+        sys_vol_list = []
+        idio_vol_list = []
+
+        for dt in B.index:
+            t = cov_dates.get_loc(dt)
+            cov_t = pd.DataFrame(
+                self.cov_tensor[t], index=factors, columns=factors)
+
+            rc_t, sys_vol_t = self.compute_factor_risk_contribution(
+                B.loc[dt],
+                cov_t,
+                annualize=self.annualize,
+                annualization_factor=self.config.annualization_factor
+            )
+            rc_t = self._attach_date_index(rc_t, dt)
+            rows.append(rc_t)
+
+            sys_vol_list.append(sys_vol_t)
+
+            if self.residual_var is not None and dt in self.residual_var.index:
+                idio_var = float(self.residual_var.loc[dt])
+                iv = np.sqrt(idio_var)
+                if self.annualize:
+                    iv *= np.sqrt(self.config.annualization_factor)
+                idio_vol_list.append(iv)
+            else:
+                idio_vol_list.append(np.nan)
+
+        rc_by_date = pd.concat(rows, axis=0).sort_index()
+
+        systematic_vol = pd.Series(
+            sys_vol_list, index=B.index, name="SystematicVol"
+        )
+        idio_vol = pd.Series(
+            idio_vol_list, index=B.index, name="IdioVol"
+        )
+
+        last_dt = B.index[-1]
+        latest_factor_rc = rc_by_date.loc[last_dt].copy()
+
+        return {
+            "factor_rc_by_date": rc_by_date,
+            "systematic_vol_by_date": systematic_vol,
+            "idio_vol_by_date": idio_vol,
+            "latest_factor_rc": latest_factor_rc,
+            "latest_systematic_vol": float(systematic_vol.loc[last_dt]),
+            "latest_idio_vol": float(idio_vol.loc[last_dt]) if np.isfinite(idio_vol.loc[last_dt]) else np.nan
+        }
 
 
 class AssetRiskEngine():
@@ -107,8 +328,12 @@ class AssetRiskEngine():
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
         out = df.copy()
         out["Date"] = dt
-        out["Asset"] = out.index
-        return out.reset_index(drop=True).set_index(["Date", "Asset"]).sort_index()
+        out["Factor"] = out.index
+        return (
+            out.reset_index(drop=True)
+            .set_index(["Date", "Factor"])
+            .sort_index()
+        )
 
     def run(self) -> dict:
         W = self.weights

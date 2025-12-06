@@ -1,6 +1,18 @@
 from dataclasses import dataclass
 from .structs import FactorDef
 
+# ----------------------------------
+# ASSET RISK CONFIGURATION
+# ----------------------------------
+
+
+@dataclass(frozen=True)
+class FactorRiskConfig:
+    span: int = 63  # days
+    returns_method: str = 'simple'  # 'log' or 'simple'
+    compute_on: str = 'all'
+    annualization_factor: int = 252
+
 
 # ----------------------------------
 # ASSET RISK CONFIGURATION

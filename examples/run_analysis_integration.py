@@ -7,9 +7,10 @@ from backend.structs import RebalPolicies, FactorAnalysisMode, Asset
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
-from backend.data import YFinanceDataFetcher as yf
-
+from backend.data import YFinanceDataFetcher
+from backend.risk import FactorRiskEngine
 import pandas as pd
+import numpy as np
 
 if __name__ == "__main__":
 
@@ -69,7 +70,7 @@ if __name__ == "__main__":
         close = pd.read_csv('etf_close_prices.csv', parse_dates=[
                             'Date']).set_index('Date')
     else:
-        data_engine = yf()
+        data_engine = YFinanceDataFetcher()
         close = data_engine.fetch_close_prices(
             ticker_symbol=tickers_download,
             start_date='2015-12-31',
@@ -106,8 +107,7 @@ if __name__ == "__main__":
                                        factor_definition=FACTOR_LENS_UNIVERSE)
 
     factors_ret = factor_engine.run()
-    # or np.exp(factors_ret.cumsum(axis=0))
-    factors_prices = (1 + factors_ret).cumprod(axis=0)
+    factors_prices = np.exp(factors_ret.cumsum(axis=0))
 
     # test backtester
     portfolio_tickers = ['SPY', 'BND']
@@ -172,3 +172,16 @@ if __name__ == "__main__":
     ).run()
 
     print("Analyzing Factor Risk contributions...")
+
+    factor_risk = FactorRiskEngine(
+        betas=betas,                     # from FactorExposure.run()
+        factor_prices=factors_prices,    # you already build this
+        residual_var=resid,               # add later once you store it
+        compute_over_time=True,
+        rebal_vec=rebal_vec,             # optional
+        annualize=True
+    ).run()
+
+    print(factor_risk["latest_factor_rc"])
+    print(factor_risk["latest_systematic_vol"])
+    print('a')
