@@ -7,3 +7,4 @@ todo.md
 *.html
 clipboard.py
 examples/__pycache__
+.vscode/
