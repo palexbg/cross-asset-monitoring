@@ -361,6 +361,9 @@ class AssetRiskEngine():
     def run(self) -> dict:
         W = self.weights
 
+        # Align weights and returns
+        W = W.loc[W.index.intersection(self.returns.index)]
+
         # Latest-only path
         if self.config.compute_on == ComputeOn.LATEST:
             cov_last = self.latest_covmat
