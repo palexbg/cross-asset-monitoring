@@ -33,6 +33,30 @@ def get_returns(
     return returns
 
 
+def build_index_from_returns(
+    returns: pd.DataFrame,
+    method: ReturnMethod | str = ReturnMethod.LOG
+) -> pd.DataFrame:
+    """Reconstruct price index from returns using the chosen convention.
+
+    LOG    -> exp(cumulative log-returns)
+    SIMPLE -> cumulative product of (1 + r)
+    """
+
+    if isinstance(method, str):
+        try:
+            method = ReturnMethod(method)
+        except ValueError:
+            raise ValueError("method must be 'log' or 'simple'")
+
+    if method == ReturnMethod.LOG:
+        return np.exp(returns.cumsum(axis=0))
+    elif method == ReturnMethod.SIMPLE:
+        return (1.0 + returns).cumprod(axis=0)
+    else:
+        raise ValueError("method must be 'log' or 'simple'")
+
+
 def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.DatetimeIndex) -> Tuple[pd.DatetimeIndex, pd.Series]:
     """
     Generate valid trading (rebal) dates. New schedules have to be added in the RebalanceSchedule class.
@@ -134,8 +158,9 @@ def normalize_prices_to_base_currency(
 
     for asset in foreign_assets:
 
-        direct_pair = f"{asset.currency}{base_currency}=X"
-        inverse_pair = f"{base_currency}{asset.currency}=X"
+        # Build FX tickers using plain currency codes (strings)
+        direct_pair = f"{asset.currency}{base_ccy_str}=X"
+        inverse_pair = f"{base_ccy_str}{asset.currency}=X"
 
         if direct_pair in fx_data.columns:
             # Price_Base = Price_Local * (Local/Base)

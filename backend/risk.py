@@ -101,7 +101,7 @@ class FactorRiskEngine():
             b = np.asarray(betas)
             idx = pd.Index(range(len(b)))
 
-        sys_var = float(b.T @ cov @ b)
+        sys_var = b.T @ cov @ b
         sys_vol = np.sqrt(sys_var)
 
         if sys_vol == 0 or not np.isfinite(sys_vol):
@@ -152,10 +152,12 @@ class FactorRiskEngine():
                 )
                 idio_vol = np.nan
                 if self.residual_var is not None:
-                    idio_var = float(self.residual_var.iloc[-1])
+                    idio_var = self.residual_var.iloc[-1]
                     idio_vol = np.sqrt(idio_var)
                     if self.annualize:
-                        idio_vol *= np.sqrt(self.config.annualization_factor)
+                        # the smoothing window adjustment is needed because the factor betas (and thus the residuals) are smoothed
+                        idio_vol *= np.sqrt(self.config.annualization_factor /
+                                            self.config.smoothing_window)
 
                 return {
                     "latest_factor_rc": rc,
@@ -175,10 +177,11 @@ class FactorRiskEngine():
 
             idio_vol = np.nan
             if self.residual_var is not None and last_date in self.residual_var.index:
-                idio_var = float(self.residual_var.loc[last_date])
+                idio_var = self.residual_var.loc[last_date]
                 idio_vol = np.sqrt(idio_var)
                 if self.annualize:
-                    idio_vol *= np.sqrt(self.config.annualization_factor)
+                    idio_vol *= np.sqrt(self.config.annualization_factor /
+                                        self.config.smoothing_window)
 
             return {
                 "latest_factor_rc": rc,
@@ -214,10 +217,11 @@ class FactorRiskEngine():
             sys_vol_list.append(sys_vol_t)
 
             if self.residual_var is not None and dt in self.residual_var.index:
-                idio_var = float(self.residual_var.loc[dt])
+                idio_var = self.residual_var.loc[dt]
                 iv = np.sqrt(idio_var)
                 if self.annualize:
-                    iv *= np.sqrt(self.config.annualization_factor)
+                    iv *= np.sqrt(self.config.annualization_factor /
+                                  self.config.smoothing_window)
                 idio_vol_list.append(iv)
             else:
                 idio_vol_list.append(np.nan)
@@ -239,8 +243,8 @@ class FactorRiskEngine():
             "systematic_vol_by_date": systematic_vol,
             "idio_vol_by_date": idio_vol,
             "latest_factor_rc": latest_factor_rc,
-            "latest_systematic_vol": float(systematic_vol.loc[last_dt]),
-            "latest_idio_vol": float(idio_vol.loc[last_dt]) if np.isfinite(idio_vol.loc[last_dt]) else np.nan
+            "latest_systematic_vol": systematic_vol.loc[last_dt],
+            "latest_idio_vol": idio_vol.loc[last_dt][0] if np.isfinite(idio_vol.loc[last_dt][0]) else np.nan
         }
 
 
@@ -351,10 +355,10 @@ class AssetRiskEngine():
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
         out = df.copy()
         out["Date"] = dt
-        out["Factor"] = out.index
+        out["Asset"] = out.index
         return (
             out.reset_index(drop=True)
-            .set_index(["Date", "Factor"])
+            .set_index(["Date", "Asset"])
             .sort_index()
         )
 
@@ -372,7 +376,7 @@ class AssetRiskEngine():
                 )
                 return {
                     "latest_rc": risk_contribution,
-                    "latest_vol": port_vol
+                    "latest_port_vol": port_vol
                 }
 
             last_date = W.index[-1]
@@ -382,7 +386,7 @@ class AssetRiskEngine():
                 risk_contribution, last_date)
             return {
                 "latest_rc": risk_contribution,
-                "latest_vol": port_vol
+                "latest_port_vol": port_vol
             }
 
         # over time, we slice the weights vector to be at the rebal dates and calc only those
@@ -419,11 +423,11 @@ class AssetRiskEngine():
 
         last_dt = W.index[-1]
         latest_rc = risk_contribution.loc[last_dt].copy()
-        latest_vol = float(port_vol.loc[last_dt])
+        latest_port_vol = port_vol.loc[last_dt]
 
         return {
             "rc_by_date": risk_contribution,
             "port_vol_by_date": port_vol,
             "latest_rc": latest_rc,
-            "latest_vol": latest_vol
+            "latest_port_vol": latest_port_vol
         }

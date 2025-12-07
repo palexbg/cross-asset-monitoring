@@ -10,8 +10,10 @@ from .structs import FactorDef, ReturnMethod, CovarianceMethod
 class FactorRiskConfig:
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE
+    cov_method: CovarianceMethod = CovarianceMethod.EWMA
     compute_on: str = 'all'
     annualization_factor: int = 252
+    smoothing_window: int = 5  # days for the factor betas construction
 
 
 # ----------------------------------

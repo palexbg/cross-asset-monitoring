@@ -1,9 +1,9 @@
 from backend.perfstats import PortfolioStats
-from backend.utils import dailify_risk_free, get_valid_rebal_vec_dates, normalize_prices_to_base_currency
+from backend.utils import dailify_risk_free, get_valid_rebal_vec_dates, normalize_prices_to_base_currency, build_index_from_returns
 
 from pathlib import Path
 from backend.factors import FactorConstruction, FactorExposure, triangulate_fx_factor
-from backend.structs import RebalPolicies, FactorAnalysisMode, Asset, Currency
+from backend.structs import RebalPolicies, FactorAnalysisMode, Asset, Currency, ReturnMethod
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
@@ -107,7 +107,8 @@ if __name__ == "__main__":
                                        factor_definition=FACTOR_LENS_UNIVERSE)
 
     factors_ret = factor_engine.run()
-    factors_prices = np.exp(factors_ret.cumsum(axis=0))
+    factors_prices = build_index_from_returns(
+        factors_ret, method=ReturnMethod.LOG)
 
     # test backtester
     portfolio_tickers = ['SPY', 'BND']
@@ -163,13 +164,16 @@ if __name__ == "__main__":
         port_saa.nav, factors_prices)
 
     print("Analyzing Risk contributions...")
-    risk_contribution = AssetRiskEngine(
+    asset_risk = AssetRiskEngine(
         weights=saa.weights,
         prices=saa.portfolio_assets_prices,
         rebal_vec=rebal_vec,
         compute_over_time=True,
         annualize=True
     ).run()
+
+    print(asset_risk['latest_rc'])
+    print(asset_risk['latest_port_vol'])
 
     print("Analyzing Factor Risk contributions...")
 
@@ -184,4 +188,5 @@ if __name__ == "__main__":
 
     print(factor_risk["latest_factor_rc"])
     print(factor_risk["latest_systematic_vol"])
+    print(factor_risk["latest_idio_vol"])
     print('a')

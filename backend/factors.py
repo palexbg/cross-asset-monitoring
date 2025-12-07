@@ -384,5 +384,5 @@ class FactorExposure():
         betas = results.params
         t_stats = results.tvalues
         rsq = results.rsquared
-        resid = results.mse_resid
-        return betas, t_stats, rsq, resid
+        residual_var = results.scale  # variance of the residuals
+        return betas, t_stats, rsq, residual_var
