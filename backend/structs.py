@@ -44,6 +44,13 @@ class Currency(Enum):
     CHF = "CHF"
 
 
+class ComputeOn(Enum):
+    # compute only latest point (when compute_over_time=False)
+    LATEST = "latest"
+    ALL = "all"            # over-time on all available dates
+    REBAL_ONLY = "rebal_only"  # over-time only on rebal dates
+
+
 # ----------------------------------
 # REBALANCE SCHEDULES
 # ----------------------------------

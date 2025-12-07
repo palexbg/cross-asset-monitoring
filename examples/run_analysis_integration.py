@@ -168,7 +168,6 @@ if __name__ == "__main__":
         weights=saa.weights,
         prices=saa.portfolio_assets_prices,
         rebal_vec=rebal_vec,
-        compute_over_time=True,
         annualize=True
     ).run()
 
@@ -180,8 +179,7 @@ if __name__ == "__main__":
     factor_risk = FactorRiskEngine(
         betas=betas,                     # from FactorExposure.run()
         factor_prices=factors_prices,    # you already build this
-        residual_var=resid,               # add later once you store it
-        compute_over_time=True,
+        residual_var=resid,              # add later once you store it
         rebal_vec=rebal_vec,             # optional
         annualize=True
     ).run()

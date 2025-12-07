@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from .structs import FactorDef, ReturnMethod, CovarianceMethod
+from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 
 # ----------------------------------
 # ASSET RISK CONFIGURATION
@@ -11,7 +11,7 @@ class FactorRiskConfig:
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE
     cov_method: CovarianceMethod = CovarianceMethod.EWMA
-    compute_on: str = 'all'
+    compute_on: ComputeOn = ComputeOn.REBAL_ONLY
     annualization_factor: int = 252
     smoothing_window: int = 5  # days for the factor betas construction
 
@@ -25,7 +25,7 @@ class AssetRiskConfig:
     cov_method: CovarianceMethod = CovarianceMethod.EWMA
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE
-    compute_on: str = 'all'
+    compute_on: ComputeOn = ComputeOn.REBAL_ONLY
     annualization_factor: int = 252
 
 # ----------------------------------
@@ -56,7 +56,6 @@ class FactorConfig:
     cov_span: int = 750  # days
     target_yearly_vol: float = 0.15  # 15% annualized volatility
     scale_factors: bool = True
-
 
  # Factor Lens Universe Definitions
 FACTOR_LENS_UNIVERSE = [

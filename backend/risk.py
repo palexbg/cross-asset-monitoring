@@ -5,7 +5,7 @@ import numpy as np
 from .config import AssetRiskConfig, FactorRiskConfig
 from .utils import get_returns
 from .moments import compute_ewma_covar, compute_sample_covar
-from .structs import CovarianceMethod
+from .structs import CovarianceMethod, ComputeOn
 
 
 class FactorRiskEngine():
@@ -15,7 +15,6 @@ class FactorRiskEngine():
         factor_prices: Optional[pd.DataFrame] = None,
         residual_var: Optional[pd.Series] = None,
         config: FactorRiskConfig = FactorRiskConfig(),
-        compute_over_time: bool = False,
         rebal_vec: Optional[pd.Series] = None,
         annualize: bool = True,
     ):
@@ -23,7 +22,6 @@ class FactorRiskEngine():
         self.factor_prices = factor_prices
         self.residual_var = residual_var
         self.config = config
-        self.compute_over_time = compute_over_time
         self.rebal_vec = rebal_vec
         self.annualize = annualize
 
@@ -140,8 +138,8 @@ class FactorRiskEngine():
         # Factors and betas must align, as we often use warmup period to build factors while betas keep NANs
         B = B.loc[B.index.intersection(self.returns.index)]
 
-        # just using latest
-        if not self.compute_over_time:
+        # Latest-only path
+        if self.config.compute_on == ComputeOn.LATEST:
             cov_last = self.latest_covmat
 
             if isinstance(B, pd.Series):
@@ -189,8 +187,8 @@ class FactorRiskEngine():
                 "latest_idio_vol": idio_vol
             }
 
-        # over time, we slice the weights vector to be at the rebal dates and calc only those
-        if self.rebal_vec is not None:
+        # Over-time path: optionally restrict to rebal dates
+        if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
             B = B.loc[self.rebal_vec]
 
         cov_dates = self.returns.index
@@ -253,14 +251,12 @@ class AssetRiskEngine():
                  weights: Union[pd.Series, pd.DataFrame],
                  prices: pd.DataFrame,
                  config: AssetRiskConfig = AssetRiskConfig(),
-                 compute_over_time: bool = False,
                  rebal_vec: Optional[pd.Series] = None,
                  annualize: bool = True
                  ):
         self.weights = weights
         self.prices = prices
         self.config = config
-        self.compute_over_time = compute_over_time
         self.rebal_vec = rebal_vec
         self.annualize = annualize
 
@@ -365,8 +361,8 @@ class AssetRiskEngine():
     def run(self) -> dict:
         W = self.weights
 
-        # just using latest
-        if not self.compute_over_time:
+        # Latest-only path
+        if self.config.compute_on == ComputeOn.LATEST:
             cov_last = self.latest_covmat
             if isinstance(W, pd.Series):
                 risk_contribution, port_vol = self.compute_risk_contribution(
@@ -389,8 +385,8 @@ class AssetRiskEngine():
                 "latest_port_vol": port_vol
             }
 
-        # over time, we slice the weights vector to be at the rebal dates and calc only those
-        if self.rebal_vec is not None:
+        # Over-time path: optionally slice weights to rebal dates
+        if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
             W = W.loc[self.rebal_vec]
 
         risk_contribution_over_time = []
