@@ -187,4 +187,3 @@ if __name__ == "__main__":
     print(factor_risk["latest_factor_rc"])
     print(factor_risk["latest_systematic_vol"])
     print(factor_risk["latest_idio_vol"])
-    print('a')

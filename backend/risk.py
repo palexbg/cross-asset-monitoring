@@ -81,168 +81,108 @@ class FactorRiskEngine():
             .sort_index()
         )
 
-    @staticmethod
-    def compute_factor_risk_contribution(
-        betas: Union[pd.Series, np.ndarray],
-        covmat: Union[pd.DataFrame, np.ndarray],
-        annualize: bool = False,
-        annualization_factor: int = 252
-    ) -> tuple[pd.DataFrame, float]:
-        """
-        """
-        cov = covmat.values if isinstance(covmat, pd.DataFrame) else covmat
-
-        if isinstance(betas, pd.Series):
-            b = betas.values
-            idx = betas.index
-        else:
-            b = np.asarray(betas)
-            idx = pd.Index(range(len(b)))
-
-        sys_var = b.T @ cov @ b
-        sys_vol = np.sqrt(sys_var)
-
-        if sys_vol == 0 or not np.isfinite(sys_vol):
-            nan_df = pd.DataFrame({
-                "beta": np.full(len(idx), np.nan),
-                "mctr": np.full(len(idx), np.nan),
-                "ctr": np.full(len(idx), np.nan),
-                "ctr_pct": np.full(len(idx), np.nan),
-            }, index=idx)
-            return nan_df, np.nan
-
-        v = cov @ b
-        mctr = v / sys_vol
-        ctr = b * mctr
-        ctr_pct = ctr / sys_vol
-
-        if annualize:
-            scale = np.sqrt(annualization_factor)
-            sys_vol = sys_vol * scale
-            mctr = mctr * scale
-            ctr = ctr * scale
-            # ctr_pct unchanged
-
-        out = pd.DataFrame({
-            "beta": b,
-            "mctr": mctr,
-            "ctr": ctr,
-            "ctr_pct": ctr_pct
-        }, index=idx)
-
-        return out, sys_vol
-
     def run(self) -> dict:
         B = self._drop_const(self.betas)
 
         # Factors and betas must align, as we often use warmup period to build factors while betas keep NANs
         B = B.loc[B.index.intersection(self.returns.index)]
 
-        # Latest-only path
+        # Determine which dates to compute on based on compute_on
         if self.config.compute_on == ComputeOn.LATEST:
-            cov_last = self.latest_covmat
-
+            # single latest date
             if isinstance(B, pd.Series):
-                rc, sys_vol = self.compute_factor_risk_contribution(
-                    B, cov_last,
-                    annualize=self.annualize,
-                    annualization_factor=self.config.annualization_factor
-                )
-                idio_vol = np.nan
-                if self.residual_var is not None:
-                    idio_var = self.residual_var.iloc[-1]
-                    idio_vol = np.sqrt(idio_var)
-                    if self.annualize:
-                        # the smoothing window adjustment is needed because the factor betas (and thus the residuals) are smoothed
-                        idio_vol *= np.sqrt(self.config.annualization_factor /
-                                            self.config.smoothing_window)
+                B_use = B.to_frame().T
+                idx = pd.Index([self.returns.index[-1]])
+                B_use.index = idx
+            else:
+                last_date = B.index[-1]
+                B_use = B.loc[[last_date]]
+                idx = B_use.index
+        else:
+            if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
+                B = B.loc[self.rebal_vec]
+            B_use = B
+            idx = B_use.index
 
-                return {
-                    "latest_factor_rc": rc,
-                    "latest_systematic_vol": sys_vol,
-                    "latest_idio_vol": idio_vol
-                }
-
-            # over time, we slice the weights vector to be at the rebal dates and calc only those
-            last_date = B.index[-1]
-            rc, sys_vol = self.compute_factor_risk_contribution(
-                B.iloc[-1],
-                cov_last,
-                annualize=self.annualize,
-                annualization_factor=self.config.annualization_factor
-            )
-            rc = self._attach_date_index(rc, last_date)
-
-            idio_vol = np.nan
-            if self.residual_var is not None and last_date in self.residual_var.index:
-                idio_var = self.residual_var.loc[last_date]
-                idio_vol = np.sqrt(idio_var)
-                if self.annualize:
-                    idio_vol *= np.sqrt(self.config.annualization_factor /
-                                        self.config.smoothing_window)
-
-            return {
-                "latest_factor_rc": rc,
-                "latest_systematic_vol": sys_vol,
-                "latest_idio_vol": idio_vol
-            }
-
-        # Over-time path: optionally restrict to rebal dates
-        if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
-            B = B.loc[self.rebal_vec]
-
-        cov_dates = self.returns.index
         factors = self.returns.columns
+        ret_idx = self.returns.index
+        pos = ret_idx.get_indexer(idx)
+
+        cov_t = self.cov_tensor[pos, :, :]
+        B_val = B_use.to_numpy(dtype=float)
+
+        # systematic variance per date
+        sys_var = np.einsum("ti,tij,tj->t", B_val, cov_t, B_val)
+        sys_vol = np.sqrt(sys_var)
+
+        bad = (sys_vol == 0) | ~np.isfinite(sys_vol)
+        sys_vol_safe = sys_vol.copy()
+        sys_vol_safe[bad] = np.nan
+
+        v = np.einsum("tij,tj->ti", cov_t, B_val)
+        mctr = v / sys_vol_safe[:, None]
+        ctr = B_val * mctr
+        ctr_pct = ctr / sys_vol_safe[:, None]
+
+        if self.annualize:
+            scale = np.sqrt(self.config.annualization_factor)
+            sys_vol = sys_vol * scale
+            mctr = mctr * scale
+            ctr = ctr * scale
+
+        if self.residual_var is not None:
+            idio_var = self.residual_var.reindex(idx)
+            idio_vol = np.sqrt(idio_var)
+            if self.annualize:
+                idio_vol = idio_vol * np.sqrt(
+                    self.config.annualization_factor / self.config.smoothing_window
+                )
+        else:
+            idio_vol = pd.Series(np.nan, index=idx, name="IdioVol")
 
         rows = []
-        sys_vol_list = []
-        idio_vol_list = []
-
-        for dt in B.index:
-            t = cov_dates.get_loc(dt)
-            cov_t = pd.DataFrame(
-                self.cov_tensor[t], index=factors, columns=factors)
-
-            rc_t, sys_vol_t = self.compute_factor_risk_contribution(
-                B.loc[dt],
-                cov_t,
-                annualize=self.annualize,
-                annualization_factor=self.config.annualization_factor
-            )
-            rc_t = self._attach_date_index(rc_t, dt)
-            rows.append(rc_t)
-
-            sys_vol_list.append(sys_vol_t)
-
-            if self.residual_var is not None and dt in self.residual_var.index:
-                idio_var = self.residual_var.loc[dt]
-                iv = np.sqrt(idio_var)
-                if self.annualize:
-                    iv *= np.sqrt(self.config.annualization_factor /
-                                  self.config.smoothing_window)
-                idio_vol_list.append(iv)
+        for t, dt in enumerate(idx):
+            if bad[t]:
+                df_t = pd.DataFrame({
+                    "beta": np.full(len(factors), np.nan),
+                    "mctr": np.full(len(factors), np.nan),
+                    "ctr": np.full(len(factors), np.nan),
+                    "ctr_pct": np.full(len(factors), np.nan),
+                }, index=factors)
             else:
-                idio_vol_list.append(np.nan)
+                df_t = pd.DataFrame({
+                    "beta": B_val[t],
+                    "mctr": mctr[t],
+                    "ctr": ctr[t],
+                    "ctr_pct": ctr_pct[t],
+                }, index=factors)
+            df_t = self._attach_date_index(df_t, dt)
+            rows.append(df_t)
 
         rc_by_date = pd.concat(rows, axis=0).sort_index()
 
-        systematic_vol = pd.Series(
-            sys_vol_list, index=B.index, name="SystematicVol"
-        )
-        idio_vol = pd.Series(
-            idio_vol_list, index=B.index, name="IdioVol"
-        )
+        systematic_vol = pd.Series(sys_vol, index=idx, name="SystematicVol")
 
-        last_dt = B.index[-1]
+        last_dt = idx[-1]
         latest_factor_rc = rc_by_date.loc[last_dt].copy()
+        latest_systematic = systematic_vol.loc[last_dt]
+        latest_idio = idio_vol.loc[last_dt].iloc[0]
+        latest_idio = latest_idio if np.isfinite(latest_idio) else np.nan
+
+        if self.config.compute_on == ComputeOn.LATEST:
+            return {
+                "latest_factor_rc": latest_factor_rc,
+                "latest_systematic_vol": latest_systematic,
+                "latest_idio_vol": latest_idio,
+            }
 
         return {
             "factor_rc_by_date": rc_by_date,
             "systematic_vol_by_date": systematic_vol,
             "idio_vol_by_date": idio_vol,
             "latest_factor_rc": latest_factor_rc,
-            "latest_systematic_vol": systematic_vol.loc[last_dt],
-            "latest_idio_vol": idio_vol.loc[last_dt][0] if np.isfinite(idio_vol.loc[last_dt][0]) else np.nan
+            "latest_systematic_vol": latest_systematic,
+            "latest_idio_vol": latest_idio,
         }
 
 
@@ -300,54 +240,6 @@ class AssetRiskEngine():
         return pd.DataFrame(cov, index=cols, columns=cols)
 
     @staticmethod
-    def compute_risk_contribution(
-        weights: Union[np.ndarray, pd.Series],
-        covmat: Union[np.ndarray, pd.DataFrame],
-        annualize: bool = False,
-        annualization_factor: int = 252
-    ) -> tuple[pd.DataFrame, float]:
-
-        cov = covmat.values if isinstance(covmat, pd.DataFrame) else covmat
-
-        if isinstance(weights, pd.Series):
-            w = weights.values
-            idx = weights.index
-        else:
-            w = np.asarray(weights)
-            idx = pd.Index(range(len(w)))
-
-        port_vol = np.sqrt(w.T @ cov @ w)
-
-        # This is a degenerate case when we have missing values
-        if port_vol == 0 or not np.isfinite(port_vol):
-            nan_df = pd.DataFrame({
-                "weight": np.full(len(idx), np.nan),
-                "mctr": np.full(len(idx), np.nan),
-                "ctr": np.full(len(idx), np.nan),
-                "ctr_pct": np.full(len(idx), np.nan),
-            }, index=idx)
-            return nan_df, np.nan
-
-        mctr = (cov @ w) / port_vol
-        ctr = w * mctr
-        ctr_pct = ctr / port_vol
-
-        if annualize:
-            scale = np.sqrt(annualization_factor)
-            port_vol = port_vol * scale
-            mctr = mctr * scale
-            ctr = ctr * scale
-
-        out = pd.DataFrame({
-            "weight": w,
-            "mctr": mctr,
-            "ctr": ctr,
-            "ctr_pct": ctr_pct
-        }, index=idx)
-
-        return out, port_vol
-
-    @staticmethod
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
         out = df.copy()
         out["Date"] = dt
@@ -361,72 +253,94 @@ class AssetRiskEngine():
     def run(self) -> dict:
         W = self.weights
 
-        # Align weights and returns
-        W = W.loc[W.index.intersection(self.returns.index)]
-
-        # Latest-only path
+        # Determine which dates to compute on based on compute_on
         if self.config.compute_on == ComputeOn.LATEST:
             cov_last = self.latest_covmat
             if isinstance(W, pd.Series):
-                risk_contribution, port_vol = self.compute_risk_contribution(
-                    W, cov_last,
-                    annualize=self.annualize,
-                    annualization_factor=self.config.annualization_factor
-                )
-                return {
-                    "latest_rc": risk_contribution,
-                    "latest_port_vol": port_vol
-                }
+                W_use = W.to_frame().T
+                idx = pd.Index([self.returns.index[-1]])
+                W_use.index = idx
+            else:
+                W_df = W.loc[W.index.intersection(self.returns.index)]
+                last_date = W_df.index[-1]
+                W_use = W_df.loc[[last_date]]
+                idx = W_use.index
+        else:
+            if isinstance(W, pd.Series):
+                raise ValueError(
+                    "For over-time computation, weights must be a DataFrame")
+            W = W.loc[W.index.intersection(self.returns.index)]
+            if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
+                W = W.loc[self.rebal_vec]
+            W_use = W
+            idx = W_use.index
 
-            last_date = W.index[-1]
-            risk_contribution, port_vol = self.compute_risk_contribution(
-                W.iloc[-1], cov_last, annualize=self.annualize, annualization_factor=self.config.annualization_factor)
-            risk_contribution = self._attach_date_index(
-                risk_contribution, last_date)
-            return {
-                "latest_rc": risk_contribution,
-                "latest_port_vol": port_vol
-            }
+        ret_idx = self.returns.index
+        pos = ret_idx.get_indexer(idx)
 
-        # Over-time path: optionally slice weights to rebal dates
-        if self.config.compute_on == ComputeOn.REBAL_ONLY and self.rebal_vec is not None:
-            W = W.loc[self.rebal_vec]
+        cov_t = self.cov_tensor[pos, :, :]
+        W_val = W_use.to_numpy(dtype=float)
 
-        risk_contribution_over_time = []
-        port_vol_over_time = []
+        # portfolio variance per date
+        port_var = np.einsum("ti,tij,tj->t", W_val, cov_t, W_val)
+        port_vol = np.sqrt(port_var)
 
-        for i, dt in enumerate(W.index):
-            t = self.returns.index.get_loc(dt)
-            cov_t = self.cov_tensor[t, :, :]
+        bad = (port_vol == 0) | ~np.isfinite(port_vol)
+        port_vol_safe = port_vol.copy()
+        port_vol_safe[bad] = np.nan
 
-            rc_t, vol_t = self.compute_risk_contribution(
-                W.loc[dt],
-                cov_t,
-                annualize=self.annualize,
-                annualization_factor=self.config.annualization_factor)
+        v = np.einsum("tij,tj->ti", cov_t, W_val)
+        mctr = v / port_vol_safe[:, None]
+        ctr = W_val * mctr
+        ctr_pct = ctr / port_vol_safe[:, None]
 
-            rc_t = self._attach_date_index(rc_t, dt)
-            risk_contribution_over_time.append(rc_t)
-            port_vol_over_time.append(vol_t)
+        if self.annualize:
+            scale = np.sqrt(self.config.annualization_factor)
+            port_vol = port_vol * scale
+            mctr = mctr * scale
+            ctr = ctr * scale
 
-        risk_contribution = (
-            pd.concat(risk_contribution_over_time, axis=0)
-            .sort_index()
+        cols = W_use.columns
+        rc_list = []
+        for t, dt in enumerate(idx):
+            if bad[t]:
+                df_t = pd.DataFrame({
+                    "weight": np.full(len(cols), np.nan),
+                    "mctr": np.full(len(cols), np.nan),
+                    "ctr": np.full(len(cols), np.nan),
+                    "ctr_pct": np.full(len(cols), np.nan),
+                }, index=cols)
+            else:
+                df_t = pd.DataFrame({
+                    "weight": W_val[t],
+                    "mctr": mctr[t],
+                    "ctr": ctr[t],
+                    "ctr_pct": ctr_pct[t],
+                }, index=cols)
+            df_t = self._attach_date_index(df_t, dt)
+            rc_list.append(df_t)
+
+        risk_contribution = pd.concat(rc_list, axis=0).sort_index()
+
+        port_vol_series = pd.Series(
+            port_vol,
+            index=idx,
+            name="PortfolioVolatility",
         )
 
-        port_vol = pd.Series(
-            port_vol_over_time,
-            index=W.index,
-            name="PortfolioVolatility"
-        )
-
-        last_dt = W.index[-1]
+        last_dt = idx[-1]
         latest_rc = risk_contribution.loc[last_dt].copy()
-        latest_port_vol = port_vol.loc[last_dt]
+        latest_port_vol = port_vol_series.loc[last_dt]
+
+        if self.config.compute_on == ComputeOn.LATEST:
+            return {
+                "latest_rc": latest_rc,
+                "latest_port_vol": latest_port_vol,
+            }
 
         return {
             "rc_by_date": risk_contribution,
-            "port_vol_by_date": port_vol,
+            "port_vol_by_date": port_vol_series,
             "latest_rc": latest_rc,
-            "latest_port_vol": latest_port_vol
+            "latest_port_vol": latest_port_vol,
         }
