@@ -19,13 +19,29 @@ class Asset:
 
 
 # ----------------------------------
-# FACTOR ANALYSIS MODES
+# ENUMERATIONS
 # ----------------------------------
 
 
 class FactorAnalysisMode(Enum):
     ROLLING = "rolling"
     FULL = "full"
+
+
+class ReturnMethod(Enum):
+    LOG = "log"
+    SIMPLE = "simple"
+
+
+class CovarianceMethod(Enum):
+    EWMA = "ewma"
+    SAMPLE = "sample"
+
+
+class Currency(Enum):
+    USD = "USD"
+    EUR = "EUR"
+    CHF = "CHF"
 
 
 # ----------------------------------

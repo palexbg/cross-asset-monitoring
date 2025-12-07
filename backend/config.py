@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from .structs import FactorDef
+from .structs import FactorDef, ReturnMethod, CovarianceMethod
 
 # ----------------------------------
 # ASSET RISK CONFIGURATION
@@ -9,7 +9,7 @@ from .structs import FactorDef
 @dataclass(frozen=True)
 class FactorRiskConfig:
     span: int = 63  # days
-    returns_method: str = 'simple'  # 'log' or 'simple'
+    returns_method: ReturnMethod = ReturnMethod.SIMPLE
     compute_on: str = 'all'
     annualization_factor: int = 252
 
@@ -20,9 +20,9 @@ class FactorRiskConfig:
 
 @dataclass(frozen=True)
 class AssetRiskConfig:
-    cov_method: str = 'ewma'  # 'ewma' or 'sample'
+    cov_method: CovarianceMethod = CovarianceMethod.EWMA
     span: int = 63  # days
-    returns_method: str = 'simple'  # 'log' or 'simple'
+    returns_method: ReturnMethod = ReturnMethod.SIMPLE
     compute_on: str = 'all'
     annualization_factor: int = 252
 

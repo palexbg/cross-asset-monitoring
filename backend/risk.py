@@ -4,7 +4,8 @@ import numpy as np
 
 from .config import AssetRiskConfig, FactorRiskConfig
 from .utils import get_returns
-from .moments import compute_ewma_covar
+from .moments import compute_ewma_covar, compute_sample_covar
+from .structs import CovarianceMethod
 
 
 class FactorRiskEngine():
@@ -41,11 +42,22 @@ class FactorRiskEngine():
     @property
     def cov_tensor(self) -> np.ndarray:
         if self._cov_tensor is None:
-            self._cov_tensor = compute_ewma_covar(
-                returns=self.returns,
-                span=self.config.span,
-                annualize=False
-            )
+            if self.config.cov_method == CovarianceMethod.EWMA:
+                self._cov_tensor = compute_ewma_covar(
+                    returns=self.returns,
+                    span=self.config.span,
+                    annualize=False
+                )
+            elif self.config.cov_method == CovarianceMethod.SAMPLE:
+                self._cov_tensor = compute_sample_covar(
+                    returns=self.returns,
+                    window=self.config.span,
+                    annualize=False,
+                )
+            else:
+                raise NotImplementedError(
+                    f"Covariance method {self.config.cov_method} is not implemented in FactorRiskEngine."
+                )
         return self._cov_tensor
 
     @property
@@ -263,11 +275,22 @@ class AssetRiskEngine():
     @property
     def cov_tensor(self) -> np.ndarray:
         if self._cov_tensor is None:
-            self._cov_tensor = compute_ewma_covar(
-                returns=self.returns,
-                span=self.config.span,
-                annualize=False
-            )
+            if self.config.cov_method == CovarianceMethod.EWMA:
+                self._cov_tensor = compute_ewma_covar(
+                    returns=self.returns,
+                    span=self.config.span,
+                    annualize=False
+                )
+            elif self.config.cov_method == CovarianceMethod.SAMPLE:
+                self._cov_tensor = compute_sample_covar(
+                    returns=self.returns,
+                    window=self.config.span,
+                    annualize=False,
+                )
+            else:
+                raise NotImplementedError(
+                    f"Covariance method {self.config.cov_method} is not implemented in AssetRiskEngine."
+                )
         return self._cov_tensor
 
     @property

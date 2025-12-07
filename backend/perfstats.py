@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from .backtester import BacktestResult
 from .utils import get_returns
+from .structs import ReturnMethod
 from typing import Optional, Union
 
 
@@ -14,7 +15,7 @@ class PortfolioStats:
         self.backtest_result = backtest_result
         self.nav = backtest_result.nav
 
-        self.returns = get_returns(self.nav, method='simple')
+        self.returns = get_returns(self.nav, method=ReturnMethod.SIMPLE)
 
         # handle risk free
         if isinstance(risk_free, pd.Series):
@@ -58,7 +59,7 @@ class PortfolioStats:
         # Ideally, subtract RF from benchmark too if you want "Active vs Active":
         if benchmark is not None:
             # Align and subtract RF
-            bench_ret = get_returns(benchmark, method='simple').reindex(
+            bench_ret = get_returns(benchmark, method=ReturnMethod.SIMPLE).reindex(
                 self.returns.index).fillna(0.0)
             bench_excess = bench_ret - self.rf_series
         else:

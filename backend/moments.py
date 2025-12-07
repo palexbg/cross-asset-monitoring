@@ -149,3 +149,39 @@ def compute_ewma_covar(
         cov_tensor = ann_factor * cov_tensor
 
     return cov_tensor
+
+
+def compute_sample_covar(
+    returns: pd.DataFrame,
+    window: int,
+    annualize: bool = False,
+    freq: str = "B"
+) -> np.ndarray:
+    """Compute rolling sample covariance tensor.
+
+    This uses a simple rolling window sample covariance estimation on the
+    input returns DataFrame, producing a (T, N, N) tensor aligned with the
+    original index. The first `window`-1 entries are NaN.
+    """
+
+    data = returns.dropna(axis=0)
+    T, N = data.shape
+
+    cov_tensor = np.full((T, N, N), np.nan, dtype=float)
+
+    # Pre-allocate view for efficiency
+    values = data.to_numpy(dtype=float)
+
+    for t in range(window - 1, T):
+        window_slice = values[t - window + 1: t + 1]
+        cov_t = np.cov(window_slice, rowvar=False)
+        cov_tensor[t] = cov_t
+
+    if annualize:
+        # Simple annualization by frequency, reusing freq2days if available
+        from .utils import freq2days  # local import to avoid cycles
+
+        ann_factor = freq2days(freq=freq)
+        cov_tensor = ann_factor * cov_tensor
+
+    return cov_tensor

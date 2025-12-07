@@ -6,7 +6,7 @@ import statsmodels.api as sm
 from .moments import compute_ewma_covar
 from .config import FactorDef, FactorConfig
 from .utils import get_returns
-from .structs import FactorAnalysisMode
+from .structs import FactorAnalysisMode, ReturnMethod, Currency
 
 from numba import njit
 from typing import List, Optional, Tuple, Union
@@ -19,7 +19,7 @@ from typing import List, Optional, Tuple, Union
 
 def triangulate_fx_factor(
     fx_data: pd.DataFrame,
-    base_currency: str,
+    base_currency: Currency,
     ccy_factor_data: pd.Series
 ) -> pd.Series:
     """
@@ -32,12 +32,12 @@ def triangulate_fx_factor(
     """
 
     # Base Case: USD Portfolio - we do nothing
-    if base_currency == 'USD':
+    if base_currency == Currency.USD:
         return ccy_factor_data.copy()
 
     # 2. Non-USD Case: Triangulation
     # 1 Unit of Base = X Units of USD
-    pair_ticker = f"{base_currency}USD=X"
+    pair_ticker = f"{base_currency.value}USD=X"
 
     # Calculate Synthetic Price: (G10 / USD) / (EUR / USD) = G10 / EUR
     # We use bfill() because FX data sometimes has gaps on non-trading days differs from ETFs
@@ -128,9 +128,9 @@ class FactorConstruction():
     def _calc_returns(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         # Total returns that we need since we operate on ETFs and not pure long-short factors
         ret1d_total = get_returns(
-            self.prices, lookback=1, method='log').fillna(0.0, limit=5)
+            self.prices, lookback=1, method=ReturnMethod.LOG).fillna(0.0, limit=5)
         ret5d_total = get_returns(
-            self.prices, lookback=5, method='log').fillna(0.0, limit=5)
+            self.prices, lookback=5, method=ReturnMethod.LOG).fillna(0.0, limit=5)
 
         # Excess returns, fix the risk free rate here
         rf_daily = np.log1p(self.rf)
@@ -239,9 +239,9 @@ class FactorExposure():
         self.resid = None
 
         # compute 5 days rolling returns to smoothen out potential asynchronicity in factors
-        self.Y_excess = get_returns(nav, smoothing_window, method='log').sub(
+        self.Y_excess = get_returns(nav, smoothing_window, method=ReturnMethod.LOG).sub(
             rf_5d, axis=0).fillna(0.0, limit=5)
-        self.X_excess = get_returns(risk_factors, smoothing_window, method='log').sub(
+        self.X_excess = get_returns(risk_factors, smoothing_window, method=ReturnMethod.LOG).sub(
             rf_5d, axis=0).fillna(0.0, limit=5)
 
     def run(self):

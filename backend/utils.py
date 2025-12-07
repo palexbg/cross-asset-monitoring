@@ -4,16 +4,24 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from .structs import RebalanceSchedule, Asset
+from .structs import RebalanceSchedule, Asset, ReturnMethod, Currency
 
 
-def get_returns(prices: pd.DataFrame, lookback: int = 1, method: str = 'log') -> pd.DataFrame:
-    # TODO: freq has to be a pandas thingy, need to give the list of those here
-    # Resample the data to the desired frequency, use pandas offset aliases
+def get_returns(
+    prices: pd.DataFrame,
+    lookback: int = 1,
+    method: ReturnMethod | str = ReturnMethod.LOG
+) -> pd.DataFrame:
+    # Normalize method to ReturnMethod enum for safety
+    if isinstance(method, str):
+        try:
+            method = ReturnMethod(method)
+        except ValueError:
+            raise ValueError("method must be either 'log' or 'simple'")
 
-    if method == 'log':
+    if method == ReturnMethod.LOG:
         returns = np.log(prices/prices.shift(lookback))
-    elif method == 'simple':
+    elif method == ReturnMethod.SIMPLE:
         returns = prices/prices.shift(lookback) - 1
     else:
         raise ValueError("method must be either 'log' or 'simple'")
@@ -55,7 +63,7 @@ def get_valid_rebal_vec_dates(schedule: RebalanceSchedule, price_index: pd.Datet
 
 def dailify_risk_free(
     prices: pd.DataFrame,
-    base_currency: str,
+    base_currency: Currency | str,
     days_in_year: int = 252
 ) -> tuple[pd.DataFrame, pd.Series]:
     """
@@ -70,18 +78,24 @@ def dailify_risk_free(
       Adds 'RiskFreeRate' as a daily simple return series.
     """
 
-    ccy = base_currency.upper().strip()
+    if isinstance(base_currency, str):
+        try:
+            ccy = Currency(base_currency.upper().strip())
+        except ValueError:
+            raise ValueError("base_currency must be one of: USD, EUR, CHF")
+    else:
+        ccy = base_currency
     out = prices.copy()
 
-    if ccy == "USD":
+    if ccy == Currency.USD:
         # ^IRX is an annualized percent yield
         rf = (out["^IRX"] / 100.0) / days_in_year
 
-    elif ccy == "EUR":
+    elif ccy == Currency.EUR:
         # ETF price -> daily simple return
         rf = out["EL4W.DE"].pct_change()
 
-    elif ccy == "CHF":
+    elif ccy == Currency.CHF:
         # ETF price -> daily simple return
         rf = out["CSBGC3.SW"].pct_change()
     else:
@@ -99,15 +113,21 @@ def normalize_prices_to_base_currency(
     # includes just the assets or whatever needs to potentially be converted. Everything is Asset python dataclass
     asset_metadata: list[Asset],
     fx_data: pd.DataFrame,
-    base_currency: str = 'USD'
+    base_currency: Currency | str = Currency.USD
 ) -> pd.DataFrame:
     """
     Converts asset prices to portfolio base currency.
     """
     normalized_prices = close_data.copy()
 
+    # Normalize base_currency to string for comparison with asset.currency
+    if isinstance(base_currency, Currency):
+        base_ccy_str = base_currency.value
+    else:
+        base_ccy_str = str(base_currency)
+
     # Assets in foreign currency
-    foreign_assets = [a for a in asset_metadata if a.currency != base_currency]
+    foreign_assets = [a for a in asset_metadata if a.currency != base_ccy_str]
 
     if not foreign_assets:
         return normalized_prices

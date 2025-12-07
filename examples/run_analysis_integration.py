@@ -3,7 +3,7 @@ from backend.utils import dailify_risk_free, get_valid_rebal_vec_dates, normaliz
 
 from pathlib import Path
 from backend.factors import FactorConstruction, FactorExposure, triangulate_fx_factor
-from backend.structs import RebalPolicies, FactorAnalysisMode, Asset
+from backend.structs import RebalPolicies, FactorAnalysisMode, Asset, Currency
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
@@ -14,7 +14,7 @@ import numpy as np
 
 if __name__ == "__main__":
 
-    portfolio_base_ccy = 'USD'  # 'EUR'
+    portfolio_base_ccy = Currency.USD  # or Currency.EUR / Currency.CHF
 
     investment_universe_metadata = [Asset(name='SPY', asset_class='Equity', ticker='SPY', description='S&P 500 ETF', currency='USD'),
                                     Asset(name='IEF', asset_class='Rates', ticker='IEF', currency='USD',
