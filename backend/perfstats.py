@@ -5,6 +5,7 @@ from .backtester import BacktestResult
 from .utils import get_returns
 from .structs import ReturnMethod
 from typing import Optional, Union
+import matplotlib.pyplot as plt
 
 
 class PortfolioStats:
@@ -41,6 +42,58 @@ class PortfolioStats:
             display=False
         )
         return output
+
+    # --- Plot helpers returning matplotlib figures for embedding ---
+
+    def plot_monthly_heatmap_fig(self):
+        """Return a matplotlib Figure with the monthly returns heatmap.
+
+        We keep only the returns actually observed in the backtest period;
+        months with no data stay NaN and should render as blank/white
+        instead of 0.00.
+        """
+
+        # Use only non-NaN returns from the backtest; do not pad or extend
+        # beyond the NAV index.
+        r = self.excess_returns.copy()
+        # Restrict strictly to the NAV index bounds
+        r = r.loc[self.nav.index.min(): self.nav.index.max()]
+        r = r.dropna()
+
+        fig = qs.plots.monthly_heatmap(r, show=False)
+        # Some quantstats versions return an Axes, others a Figure; normalize to Figure.
+        if hasattr(fig, "get_figure"):
+            fig = fig.get_figure()
+        return fig
+
+    def plot_drawdown_fig(self):
+        """Return a matplotlib Figure with the drawdown curve."""
+
+        fig = qs.plots.drawdown(self.excess_returns, show=False)
+        if hasattr(fig, "get_figure"):
+            fig = fig.get_figure()
+        return fig
+
+    def plot_rolling_vol_fig(self, window: int = 126):
+        """Return a matplotlib Figure with rolling volatility (window in days)."""
+
+        fig = qs.plots.rolling_volatility(
+            self.excess_returns, period=window, show=False)
+        if hasattr(fig, "get_figure"):
+            fig = fig.get_figure()
+        return fig
+
+    def get_rolling_vol_series(self, window: int = 126) -> pd.Series:
+        """Return rolling volatility series for use in Streamlit charts.
+
+        This mirrors the logic of the rolling vol figure but exposes the
+        underlying annualized volatility time series so we can plot it
+        with native Streamlit charts (matching heights with st.line_chart).
+        """
+        r = self.excess_returns.copy().dropna()
+        # Daily returns rolling std scaled to annual vol with sqrt(252)
+        rv = r.rolling(window=window).std() * np.sqrt(252)
+        return rv
 
     def get_html_report(self,
                         benchmark: pd.Series = None,

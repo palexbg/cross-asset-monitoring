@@ -1,7 +1,6 @@
 from numba import njit
 import numpy as np
 import pandas as pd
-import pdb
 
 
 @njit
@@ -40,7 +39,7 @@ def clean_returns_outliers(
 
                 clean_returns[t, n] = r_t
 
-                # needs to be hooked up on proper demeaning after
+                # valid because series were demeaned beforehand
                 curr_var[n] = alpha*curr_var[n] + (1-alpha)*(r_t**2)
 
     return clean_returns
@@ -99,7 +98,7 @@ def compute_ewma_covar(
     returns: pd.DataFrame,
     span: int = 21,
     annualize: bool = False,
-    freq: str = 'B',
+    annualization_factor: int = 252,
     clip_outliers: bool = True,
     demean: bool = True
 ) -> pd.DataFrame:
@@ -145,8 +144,7 @@ def compute_ewma_covar(
 
     # 4) annualization of the covmat, matching the demeaning
     if annualize:
-        ann_factor = freq2days(freq=freq)
-        cov_tensor = ann_factor * cov_tensor
+        cov_tensor = annualization_factor * cov_tensor
 
     return cov_tensor
 
@@ -155,6 +153,7 @@ def compute_sample_covar(
     returns: pd.DataFrame,
     window: int,
     annualize: bool = False,
+    annualization_factor: int = 252,
     freq: str = "B"
 ) -> np.ndarray:
     """Compute rolling sample covariance tensor.
@@ -178,10 +177,6 @@ def compute_sample_covar(
         cov_tensor[t] = cov_t
 
     if annualize:
-        # Simple annualization by frequency, reusing freq2days if available
-        from .utils import freq2days  # local import to avoid cycles
-
-        ann_factor = freq2days(freq=freq)
-        cov_tensor = ann_factor * cov_tensor
+        cov_tensor = annualization_factor * cov_tensor
 
     return cov_tensor

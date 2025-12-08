@@ -1,5 +1,4 @@
-backend/__pycache__/ 
-tests/__pycache__/
+*/__pycache__
 .venv/
 *.csv
 todo.md
@@ -8,3 +7,4 @@ todo.md
 clipboard.py
 examples/__pycache__
 .vscode/
+__pycache__

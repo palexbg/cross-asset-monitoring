@@ -1,6 +1,13 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Sequence, Tuple
+
 import yfinance
 import pandas as pd
+
+from backend.structs import Asset, Currency
+from backend.utils import normalize_prices_to_base_currency, dailify_risk_free
+from backend.factors import triangulate_fx_factor
 
 
 class DataFetcher(ABC):
@@ -55,3 +62,88 @@ class YFinanceDataFetcher(DataFetcher):
             close.to_csv('etf_close_prices.csv', index=True)
 
         return close
+
+
+class UniverseLoader:
+    """Engine-agnostic helper that prepares a full price universe
+    using any DataFetcher implementation.
+    """
+
+    def __init__(self, data_api: DataFetcher):
+        self.data_api = data_api
+
+    def load_or_fetch_universe(
+        self,
+        close_csv_path: Path,
+        investment_universe: Sequence[Asset],
+        factor_universe: Sequence[Asset],
+        fx_universe: Sequence[Asset],
+        base_currency: Currency,
+        start_date: str,
+        end_date: str,
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """Load from CSV if present; otherwise download via the
+        configured DataFetcher. Then normalize, dailify RF, and
+        build FX factor prices.
+
+        Returns
+        -------
+        close : DataFrame
+            All prices (assets + factors + FX factor) indexed by Date.
+        risk_free_rate : Series
+            Daily risk-free rate aligned to close.index.
+        """
+
+        inv_meta = list(investment_universe)
+        fac_meta = list(factor_universe)
+        fx_meta = list(fx_universe)
+
+        asset_tickers = list({a.ticker: a for a in inv_meta}.keys())
+        factor_tickers = list({a.ticker: a for a in fac_meta}.keys())
+        fx_tickers = list({a.ticker: a for a in fx_meta}.keys())
+
+        tickers_download = list(
+            set(asset_tickers + factor_tickers + fx_tickers))
+
+        if close_csv_path.exists():
+            close = pd.read_csv(close_csv_path, parse_dates=[
+                                "Date"]).set_index("Date")
+            missing = [t for t in tickers_download if t not in close.columns]
+            if missing:
+                close = self.data_api.fetch_close_prices(
+                    ticker_symbol=tickers_download,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+        else:
+            close = self.data_api.fetch_close_prices(
+                ticker_symbol=tickers_download,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+        # Normalize to base currency
+        close = normalize_prices_to_base_currency(
+            close_data=close,
+            asset_metadata=inv_meta,
+            fx_data=close[fx_tickers] if fx_tickers else None,
+            base_currency=base_currency,
+        )
+
+        # Dailify risk free
+        close, risk_free_rate = dailify_risk_free(
+            close, base_currency=base_currency
+        )
+
+        # FX factor preconstruction
+        fx_factor_assets = [a for a in fac_meta if a.asset_class == "FXFactor"]
+        fx_factor_ticker = fx_factor_assets[0].name if fx_factor_assets else None
+        if fx_factor_ticker:
+            fx_factor_prices = triangulate_fx_factor(
+                fx_data=close[fx_tickers],
+                base_currency=base_currency,
+                ccy_factor_data=close[fx_factor_ticker],
+            )
+            close[fx_factor_ticker] = fx_factor_prices
+
+        return close, risk_free_rate

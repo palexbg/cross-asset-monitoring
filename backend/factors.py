@@ -142,7 +142,7 @@ class FactorConstruction():
         # Return Total (for output construction) AND Excess (for beta calculation)
         return ret1d_total, ret1d_excess, ret5d_excess
 
-    def _orthogonalize(self, ret1d_total, ret1d_excess, full_covmat):
+    def _orthogonalize(self, ret1d_excess, full_covmat):
 
         output = pd.DataFrame(
             index=ret1d_excess.index, columns=self.ticker_map.keys())

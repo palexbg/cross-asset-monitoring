@@ -1,13 +1,13 @@
 from backend.perfstats import PortfolioStats
-from backend.utils import dailify_risk_free, get_valid_rebal_vec_dates, normalize_prices_to_base_currency, build_index_from_returns
+from backend.utils import get_valid_rebal_vec_dates, build_index_from_returns
 
 from pathlib import Path
-from backend.factors import FactorConstruction, FactorExposure, triangulate_fx_factor
+from backend.factors import FactorConstruction, FactorExposure
 from backend.structs import RebalPolicies, FactorAnalysisMode, Asset, Currency, ReturnMethod
 from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
-from backend.data import YFinanceDataFetcher
+from backend.data import YFinanceDataFetcher, UniverseLoader
 from backend.risk import FactorRiskEngine
 import pandas as pd
 import numpy as np
@@ -66,38 +66,17 @@ if __name__ == "__main__":
 
     tickers_download = list(set(asset_tickers + factor_tickers + fx_tickers))
 
-    if Path('etf_close_prices.csv').exists():
-        close = pd.read_csv('etf_close_prices.csv', parse_dates=[
-                            'Date']).set_index('Date')
-    else:
-        data_engine = YFinanceDataFetcher()
-        close = data_engine.fetch_close_prices(
-            ticker_symbol=tickers_download,
-            start_date='2015-12-31',
-            end_date='2025-11-30')
-
-    # Normalize series to local currency
-    close = normalize_prices_to_base_currency(
-        close_data=close,
-        asset_metadata=investment_universe_metadata,
-        fx_data=close[fx_tickers],
-        base_currency=portfolio_base_ccy
-    )
-
-    # Dailify risk free
-    close, risk_free_rate = dailify_risk_free(
-        close, base_currency=portfolio_base_ccy)
-
-    # Handle the FX factor preconstruction
-    fx_factor_ticker = [
-        i.name for i in factor_universe_metadata if i.asset_class == "FXFactor"]
-    fx_factor_prices = triangulate_fx_factor(
-        fx_data=close[fx_tickers],
+    data_API = YFinanceDataFetcher()
+    universe_loader = UniverseLoader(data_API)
+    close, risk_free_rate = universe_loader.load_or_fetch_universe(
+        close_csv_path=Path('etf_close_prices.csv'),
+        investment_universe=investment_universe_metadata,
+        factor_universe=factor_universe_metadata,
+        fx_universe=fx_universe_metadata,
         base_currency=portfolio_base_ccy,
-        ccy_factor_data=close[fx_factor_ticker]
+        start_date='2015-12-31',
+        end_date='2025-11-30',
     )
-
-    close[fx_factor_ticker] = fx_factor_prices
 
     # for testing without RF
     # risk_free_rate = pd.Series(data=0.0, index=close.index)
