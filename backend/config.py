@@ -44,7 +44,7 @@ class BacktestConfig:
 
 # ----------------------------------
 # FACTOR LENS CONFIGURATION
-# Following Two Sigma's Factor Lens setup
+# Heavily inspired by https://www.venn.twosigma.com/resources/factor-lens-update
 # ----------------------------------
 
 
