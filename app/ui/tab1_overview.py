@@ -1,85 +1,61 @@
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 import altair as alt
 
 from backend.perfstats import PortfolioStats
+from backend.structs import Asset
 from backend.config import BacktestConfig
-from backend.structs import Asset, Currency, RebalPolicies
-from backend.utils import (
-    get_valid_rebal_vec_dates,
-)
-from backend.data import YFinanceDataFetcher, UniverseLoader
-from backend.backtester import run_backtest
+from backend.universes import get_investment_universe
+
+from .analysis_context import build_analysis_context
+from .theme import AREA_HIGHLIGHT_COLOR
 
 
-def _get_investment_universe():
-    return [Asset(name='SPY', asset_class='Equity', ticker='SPY', description='S&P 500 ETF', currency='USD'),
-            Asset(name='IEF', asset_class='Rates', ticker='IEF',
-                  currency='USD', description='7-10 Year Treasury ETF'),
-            Asset(name='LQD', asset_class='Credit', ticker='LQD',
-                  currency='USD', description='Investment Grade Corporate Bond ETF'),
-            Asset(name='HYG', asset_class='Credit', ticker='HYG',
-                  currency='USD', description='High Yield Corporate Bond ETF'),
-            Asset(name='SHY', asset_class='Rates', ticker='SHY',
-                  currency='USD', description='1-3 Year Treasury ETF'),
-            Asset(name='GLD', asset_class='Commodities',
-                  currency='USD', ticker='GLD', description='Gold ETF'),
-            Asset(name='BND', asset_class='Bond', ticker='BND',
-                  currency='USD', description='Vanguard Total Bond Market ETF'),
-            Asset(name='^IRX', asset_class='Rates', ticker='^IRX',
-                  description='13 Week Treasury Bill', currency='USD'),
-            Asset(name='EL4W.DE', asset_class='Rates', ticker='EL4W.DE', currency='EUR',
-                  description='Germany Money Market'),
-            Asset(name='CSBGC3.SW', asset_class='Rates', ticker='CSBGC3.SW', currency='CHF',
-                  description='Swiss Domestic Short Term Bond')]
-
-
-def _get_fx_universe():
-    return [
-        Asset(name="EURUSD=X", asset_class="FX", ticker="EURUSD=X",
-              description="EURUSD", currency="USD"),
-        Asset(name="CHFUSD=X", asset_class="FX", ticker="CHFUSD=X",
-              description="CHFUSD", currency="USD"),
-        Asset(name="CHFEUR=X", asset_class="FX", ticker="CHFEUR=X",
-              description="CHFEUR", currency="EUR"),
-    ]
-
-
-def _get_factor_universe():
-    return [Asset(name='VT', asset_class='EquityFactor', ticker='VT', description='Vanguard Total World Stock ETF', currency='USD'),
-            Asset(name='IEF', asset_class='RatesFactor', ticker='IEF',
-                  description='iShares 7-10 Year Treasury Bond ETF', currency='USD'),
-            Asset(name='LQD', asset_class='CreditFactor', ticker='LQD',
-                  description='iShares iBoxx $ Investment Grade Corporate Bond ETF', currency='USD'),
-            Asset(name='GSG', asset_class='CommoditiesFactor', ticker='GSG',
-                  description='iShares S&P GSCI Commodity-Indexed Trust', currency='USD'),
-            Asset(name='VTV', asset_class='ValueFactor', ticker='VTV',
-                  description='Vanguard Value Index Fund ETF Shares', currency='USD'),
-            Asset(name='MTUM', asset_class='MomentumFactor', ticker='MTUM',
-                  description='iShares MSCI USA Momentum Factor ETF', currency='USD'),
-            Asset(name='UDN', asset_class='FXFactor', ticker='UDN',
-                  description='Adjusted Invesco DB US Dollar Index Bearish Fund', currency='USD')]
-
-
-def _build_portfolio_universe_table(weights: dict[str, float]) -> pd.DataFrame:
+def _build_portfolio_universe_table(
+    weights: dict[str, float],
+    weights_history: pd.DataFrame,
+) -> pd.DataFrame:
     """Build a table describing the instruments in the current portfolio.
 
-    The table includes ticker, asset class, base currency, weight and description.
+    The table includes ticker, asset class, base currency, start/end weights
+    and description. Start weight is taken from the second NAV date when
+    available (fallback to the first), end weight from the last date.
     """
-    inv_universe = _get_investment_universe()
+    inv_universe = get_investment_universe()
     inv_map = {a.ticker: a for a in inv_universe}
+
+    # Determine start/end rows for weights, using the 2nd date when possible
+    # to avoid all-zeros on the very first date.
+    if weights_history is not None and not weights_history.empty:
+        idx = weights_history.index
+        if len(idx) >= 2:
+            start_idx = idx[1]
+        else:
+            start_idx = idx[0]
+        end_idx = idx[-1]
+
+        w_start = weights_history.loc[start_idx]
+        w_end = weights_history.loc[end_idx]
+    else:
+        w_start = pd.Series(weights)
+        w_end = pd.Series(weights)
+
     rows = []
-    for ticker, w in weights.items():
+    for ticker, _ in weights.items():
         asset = inv_map.get(ticker)
         if asset is not None:
+            ws = float(w_start.get(ticker, 0.0))
+            we = float(w_end.get(ticker, 0.0))
             rows.append(
                 {
                     "Ticker": ticker,
                     "Asset Class": asset.asset_class,
                     "Base Currency": asset.currency,
-                    "Weight": f"{w:.1%}",
+                    "Weight start": f"{ws:.1%}",
+                    "Weight end": f"{we:.1%}",
                     "Description": asset.description,
                 }
             )
@@ -91,90 +67,33 @@ def _get_asset_class_map() -> dict[str, str]:
 
     This is used to aggregate deviations by asset class in the UI.
     """
-    inv_universe = _get_investment_universe()
+    inv_universe = get_investment_universe()
     return {a.ticker: a.asset_class for a in inv_universe}
 
 
-def _build_key_stats_table(port_stats: PortfolioStats) -> pd.DataFrame:
-    """Build a compact stats table from PortfolioStats for display in the UI."""
-    stats = port_stats.calculate_stats(mode="basic")
+def _describe_risk_free_proxy(base_currency: str) -> str:
+    """Return a human-readable description of the risk-free proxy.
 
-    # Compute annualized return (CAGR) and volatility directly from NAV/returns
-    nav = port_stats.nav.dropna()
-    rets = port_stats.returns.dropna()
-    if not nav.empty and not rets.empty:
-        n_days = (nav.index[-1] - nav.index[0]).days
-        if n_days > 0:
-            cagr = (nav.iloc[-1] / nav.iloc[0]) ** (252.0 / n_days) - 1.0
-        else:
-            cagr = float("nan")
-        ann_vol = rets.std() * (252 ** 0.5)
-    else:
-        cagr = float("nan")
-        ann_vol = float("nan")
+    This mirrors the hard-coded mapping in dailify_risk_free.
+    """
+    inv_universe = get_investment_universe()
+    mapping = {
+        "USD": "^IRX",
+        "EUR": "EL4W.DE",
+        "CHF": "CSBGC3.SW",
+    }
+    ticker = mapping.get(str(base_currency).upper())
+    if ticker is None:
+        return f"Risk-free proxy aligned to base currency ({base_currency})."
 
-    metric_map = [
-        ("Start Period", "Start Period"),
-        ("End Period", "End Period"),
-        ("Sharpe", "Sharpe"),
-        ("Max Drawdown", "Max Drawdown"),
-        ("Longest DD Days", "Longest DD Days"),
-    ]
+    asset = next((a for a in inv_universe if a.ticker == ticker), None)
+    if asset is None:
+        return f"Risk-free proxy: {ticker} (base currency {base_currency})."
 
-    rows = []
-    for label, idx in metric_map:
-        if idx in stats.index:
-            value = stats.loc[idx].iloc[0]
-            rows.append({"Metric": label, "Value": value})
-
-    # Custom calendar/rolling period returns from NAV, independent of QuantStats
-    if not nav.empty:
-        last_nav = nav.iloc[-1]
-        last_date = nav.index[-1]
-
-        # YTD: from first trading day of current calendar year to last date
-        start_ytd_date = pd.Timestamp(year=last_date.year, month=1, day=1)
-        nav_ytd = nav[nav.index >= start_ytd_date]
-        if len(nav_ytd) >= 2:
-            ytd_ret = nav_ytd.iloc[-1] / nav_ytd.iloc[0] - 1.0
-            rows.append({"Metric": "YTD", "Value": f"{ytd_ret:.2%}"})
-
-        # Helper for rolling window returns by trading days
-        def _window_ret(window_days: int):
-            if len(nav) < 2:
-                return None
-            # Use trading-day count as an approximation (e.g. 63 ~ 3M)
-            start_idx = max(0, len(nav) - window_days)
-            sub = nav.iloc[start_idx:]
-            if len(sub) >= 2:
-                return sub.iloc[-1] / sub.iloc[0] - 1.0
-            return None
-
-        three_m = _window_ret(63)
-        if three_m is not None:
-            rows.append({"Metric": "3M", "Value": f"{three_m:.2%}"})
-
-        six_m = _window_ret(126)
-        if six_m is not None:
-            rows.append({"Metric": "6M", "Value": f"{six_m:.2%}"})
-
-        one_y = _window_ret(252)
-        if one_y is not None:
-            rows.append({"Metric": "1Y", "Value": f"{one_y:.2%}"})
-
-    # Append our own annualized metrics (formatted as %)
-    if pd.notna(cagr):
-        rows.append({"Metric": "Annualized Return (CAGR)",
-                    "Value": f"{cagr:.2%}"})
-    if pd.notna(ann_vol):
-        rows.append({"Metric": "Annualized Volatility",
-                    "Value": f"{ann_vol:.2%}"})
-
-    if rows:
-        return pd.DataFrame(rows)
-
-    # Fallback: show whatever stats were returned
-    return stats.reset_index().rename(columns={"index": "Metric"})
+    return (
+        f"Risk-free proxy: {asset.ticker} – {asset.description} "
+        f"(currency {asset.currency})."
+    )
 
 
 def _clamp_dates_to_index(start_date, end_date, index: pd.DatetimeIndex):
@@ -214,85 +133,31 @@ def _clamp_dates_to_index(start_date, end_date, index: pd.DatetimeIndex):
     return clamped_start, clamped_end
 
 
-@st.cache_data(show_spinner=False)
-def _build_saa_backtest(
-    base_currency: str,
-    start_date,
-    end_date,
-    rebal_policy_name: str,
-    weights: dict[str, float],
-):
-    inv = _get_investment_universe()
-    fx = _get_fx_universe()
-    factors = _get_factor_universe()
-
-    portfolio_tickers = list(weights.keys())
-
-    data_engine = YFinanceDataFetcher()
-    universe_loader = UniverseLoader(data_engine)
-    close, risk_free_rate = universe_loader.load_or_fetch_universe(
-        close_csv_path=Path("etf_close_prices.csv"),
-        investment_universe=inv,
-        factor_universe=factors,
-        fx_universe=fx,
-        base_currency=Currency(base_currency),
-        start_date=str(start_date),
-        end_date=str(end_date),
-    )
-
-    # Clamp requested dates to available price index
-    clamped_start, clamped_end = _clamp_dates_to_index(
-        start_date, end_date, close.index)
-    if clamped_start is None or clamped_end is None:
-        return None, None, None
-
-    close = close.loc[clamped_start:clamped_end]
-
-    pf_prices = close[portfolio_tickers].dropna()
-
-    rebal_policy = {
-        "US Month Start": RebalPolicies.US_MONTH_START,
-        "US Month End": RebalPolicies.US_MONTH_END,
-    }[rebal_policy_name]
-
-    valid_dates, rebal_vec = get_valid_rebal_vec_dates(
-        schedule=rebal_policy,
-        price_index=pf_prices.index,
-    )
-
-    pf_weights = pd.DataFrame(
-        index=pf_prices.index,
-        columns=portfolio_tickers,
-        data=0.0,
-    )
-    for ticker, w in weights.items():
-        pf_weights.loc[valid_dates, ticker] = w
-
-    bt = run_backtest(
-        prices=pf_prices,
-        target_weights=pf_weights,
-        backtest_config=BacktestConfig(),
-        rebal_vec=rebal_vec,
-    )
-
-    # Also return the clamped date range and underlying prices for UI use
-    return bt, risk_free_rate, rebal_vec, pf_prices, clamped_start, clamped_end
-
-
 def render_overview_tab(
     base_currency: str,
     start_date,
     end_date,
     rebal_policy_name: str,
-    w_equity: float
+    w_equity: float,
+    portfolio_name: str,
 ):
-    st.title("Portfolio Overview")
+    st.title(f"Portfolio Overview – {portfolio_name}")
+
+    # Top disclaimer (clearly visible)
+    st.markdown("---")
+    st.info(
+        "**Disclaimer:** For educational & demonstrational purposes only. "
+        "Loads a local CSV of public prices sourced from Yahoo Finance; not investment advice."
+    )
+
+    # Data source notice for the portfolio overview
+    st.write("Data Source: Yahoo Finance")
 
     if start_date >= end_date:
         st.error("Start date must be before end date.")
         return
 
-    with st.spinner("Running backtest..."):
+    with st.spinner("Running backtest, factor lense and risk & return contributions calculations"):
         # For now, build a simple 2-asset weight vector;
         # this can be extended to more assets later.
         weights = {
@@ -300,22 +165,30 @@ def render_overview_tab(
             "BND": 1.0 - w_equity,
         }
 
-        bt, rf, rebal_vec, pf_prices, eff_start, eff_end = _build_saa_backtest(
+        ctx = build_analysis_context(
             base_currency=base_currency,
             start_date=start_date,
             end_date=end_date,
             rebal_policy_name=rebal_policy_name,
-            weights=weights,
+            w_equity=w_equity,
+            portfolio_name=portfolio_name,
         )
 
-    if bt is None:
+    if ctx is None:
         st.error(
-            "Selected date range has no overlapping data. Please adjust the dates.")
+            "Selected date range has no overlapping data. Please adjust the dates."
+        )
         return
 
+    bt = ctx["bt"]
+    rf = ctx["rf"]
+    rebal_vec = ctx["rebal_vec"]
+    pf_prices = ctx["pf_prices"]
+
     port_stats = PortfolioStats(backtest_result=bt, risk_free=rf)
-    universe_df = _build_portfolio_universe_table(weights)
-    custom_stats = _build_key_stats_table(port_stats)
+    universe_df = _build_portfolio_universe_table(weights, bt.weights)
+    # Use the backend helper to build a display-ready summary table
+    custom_stats = port_stats.summary_table()
 
     # Top row: universe table (left) and NAV (right)
     top_left, top_right = st.columns([2, 3])
@@ -351,10 +224,57 @@ def render_overview_tab(
 
     with stats_col:
         st.subheader("Key stats")
-        # Ensure Value column is consistently string-typed to avoid Arrow issues
+        # Format values for display: backend returns numeric values where
+        # appropriate and the UI is responsible for presentation formatting.
         stats_display = custom_stats.copy()
-        stats_display["Value"] = stats_display["Value"].astype(str)
+
+        def _format_value(row):
+            m = str(row.get("Metric", ""))
+            v = row.get("Value")
+            if pd.isna(v):
+                return ""
+            # Integers / day counts
+            if isinstance(v, (int,)) or (isinstance(v, float) and m.lower().endswith("days")):
+                try:
+                    return f"{int(v)}"
+                except Exception:
+                    return str(v)
+
+            # Try numeric conversion for floats represented as strings
+            try:
+                fv = float(v)
+            except Exception:
+                return str(v)
+
+            percent_metrics = {
+                "YTD",
+                "3M",
+                "6M",
+                "1Y",
+                "Annualized Return (CAGR)",
+                "Annualized Volatility",
+                "Max drawdown",
+            }
+
+            if m in percent_metrics or "drawdown" in m.lower() or "return" in m.lower() or "volatility" in m.lower():
+                return f"{fv:.2%}"
+
+            # Default numeric formatting (e.g. Sharpe)
+            return f"{fv:.2f}"
+
+        if not stats_display.empty:
+            stats_display["Value"] = stats_display.apply(_format_value, axis=1)
         st.table(stats_display.set_index("Metric"))
+        # Describe the risk-free proxy and transaction costs used under the hood
+        rf_text = _describe_risk_free_proxy(base_currency)
+        cfg = BacktestConfig()
+        tc_bps = cfg.cost_rate * 10_000.0
+        tc_text = (
+            f"Transaction costs: {tc_bps:.1f} bps per trade "
+            f"(applied to traded notional)."
+        )
+        st.caption(rf_text)
+        st.caption(tc_text)
 
     with weights_col:
         st.subheader("Deviation from target weights")
@@ -423,8 +343,13 @@ def render_overview_tab(
 
     with col_hm:
         st.subheader("Monthly performance heatmap")
-        heatmap_fig = port_stats.plot_monthly_heatmap_fig()
-        st.pyplot(heatmap_fig, clear_figure=False)
+        try:
+            heatmap_fig = port_stats.plot_monthly_heatmap_fig()
+            st.pyplot(heatmap_fig, clear_figure=False)
+        except Exception as e:
+            st.caption(
+                f"Could not render monthly performance heatmap (insufficient data or plotting error): {e}"
+            )
 
     with col_tc:
         st.subheader("Transaction costs over time")
@@ -466,3 +391,27 @@ def render_overview_tab(
             st.altair_chart(rv_chart, use_container_width=True)
         else:
             st.caption("Not enough data to compute rolling volatility.")
+
+    # Fourth row: historical drawdown
+    st.subheader("Historical drawdown")
+    dd_series = port_stats.get_drawdown_series()
+    dd_series = dd_series.dropna()
+    if not dd_series.empty:
+        dd_df = dd_series.reset_index()
+        dd_df.columns = ["date", "drawdown"]
+        dd_chart = (
+            alt.Chart(dd_df)
+            .mark_area(color=AREA_HIGHLIGHT_COLOR, opacity=0.4)
+            .encode(
+                x=alt.X("date:T", axis=alt.Axis(format="%b %Y", title=None)),
+                y=alt.Y("drawdown:Q", title="Drawdown"),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date"),
+                    alt.Tooltip("drawdown:Q", title="Drawdown", format=".1%"),
+                ],
+            )
+            .properties(height=260)
+        )
+        st.altair_chart(dd_chart, use_container_width=True)
+    else:
+        st.caption("Not enough data to compute drawdowns.")
