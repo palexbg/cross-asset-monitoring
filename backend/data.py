@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Sequence, Tuple
 
-import yfinance
 import pandas as pd
 
 from backend.structs import Asset, Currency
@@ -46,6 +45,8 @@ class YFinanceDataFetcher(DataFetcher):
         Returns: pandas.DataFrame: DataFrame containing the historical ETF data.
         """
 
+        import yfinance
+
         data = yfinance.download(tickers=ticker_symbol,
                                  start=start_date,
                                  end=end_date,
@@ -71,7 +72,8 @@ class YFinanceDataFetcher(DataFetcher):
                  )
 
         if store_data:
-            close.to_csv('etf_close_prices.csv', index=True)
+            # Persist a small convenience cache for local development
+            close.to_csv('cached_etf_close_prices.csv', index=True)
 
         return close
 

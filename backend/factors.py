@@ -152,6 +152,17 @@ class FactorConstruction():
                 realized_vol = np.sqrt(realized_var)
 
                 valid_len = len(realized_vol)
+                # If there is no valid history for the rolling vol (e.g.
+                # too short input series or all values were clipped), skip
+                # scaling for this factor to avoid length-mismatch errors.
+                if valid_len == 0:
+                    continue
+
+                # If all entries are NaN (no usable vol estimates), skip as well.
+                n_non_na = int(np.count_nonzero(~np.isnan(realized_vol)))
+                if n_non_na == 0:
+                    continue
+
                 aligned_index = factors.index[-valid_len:]
 
                 vol_series = pd.Series(

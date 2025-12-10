@@ -12,7 +12,8 @@ from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 class DataConfig:
     """Global data-related settings used across the backend."""
 
-    etf_data_path: str = 'etf_close_prices.csv'
+    # Path to the cached CSV containing ETF close prices used as a local convenience cache
+    etf_data_path: str = 'cached_etf_close_prices.csv'
     maxfill_days: int = 5  # maximum number of consecutive missing days to fill forward
 
 

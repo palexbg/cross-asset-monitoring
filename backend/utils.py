@@ -5,6 +5,8 @@ derive rebalance calendars, dailify risk-free rates and normalize
 prices into a common base currency for the rest of the backend.
 """
 
+from __future__ import annotations
+
 from typing import Tuple
 
 import pandas as pd

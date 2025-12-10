@@ -8,7 +8,10 @@ it is not used for the dashboard UI.
 """
 
 
-import quantstats as qs
+try:
+    import quantstats as qs
+except Exception:
+    qs = None
 import pandas as pd
 import numpy as np
 
@@ -42,6 +45,8 @@ class PortfolioStats:
         Calculates metrics on Excess Returns.
         We pass rf=0.0 because we already subtracted self.rf_series.
         """
+        if qs is None:
+            raise ImportError("quantstats is required for calculate_stats()")
         output = qs.reports.metrics(
             self.excess_returns,
             mode=mode,
@@ -50,6 +55,97 @@ class PortfolioStats:
         )
         return output
 
+    def summary_table(self) -> pd.DataFrame:
+        """Return a compact DataFrame of key statistics suitable for UI display.
+
+        This mirrors the small helper previously implemented in the UI layer.
+        The method returns raw numeric values where appropriate (floats for
+        percentage-like metrics and ints for day-counts). The UI layer is
+        responsible for formatting presentation (percent vs. decimal).
+        """
+        try:
+            stats = self.calculate_stats(mode="basic")
+        except Exception:
+            # If quantstats is unavailable or fails, continue with an empty
+            # stats frame and fall back to NAV-derived metrics.
+            stats = pd.DataFrame()
+
+        nav = self.nav.dropna()
+        rets = self.returns.dropna()
+
+        if not nav.empty and not rets.empty:
+            n_days = (nav.index[-1] - nav.index[0]).days
+            if n_days > 0:
+                cagr = (nav.iloc[-1] / nav.iloc[0]) ** (252.0 / n_days) - 1.0
+            else:
+                cagr = float("nan")
+            ann_vol = rets.std() * (252 ** 0.5)
+        else:
+            cagr = float("nan")
+            ann_vol = float("nan")
+
+        metric_map = [
+            ("Start Period", "Start Period"),
+            ("End Period", "End Period"),
+            ("Sharpe", "Sharpe"),
+            ("Max drawdown", "Max Drawdown"),
+            ("Longest drawdown (days)", "Longest DD Days"),
+        ]
+
+        rows = []
+        for label, idx in metric_map:
+            if idx in stats.index:
+                value = stats.loc[idx].iloc[0]
+                rows.append({"Metric": label, "Value": value})
+
+        # Calendar and rolling returns from NAV
+        if not nav.empty:
+            last_date = nav.index[-1]
+
+            # YTD
+            start_ytd_date = pd.Timestamp(year=last_date.year, month=1, day=1)
+            nav_ytd = nav[nav.index >= start_ytd_date]
+            if len(nav_ytd) >= 2:
+                ytd_ret = nav_ytd.iloc[-1] / nav_ytd.iloc[0] - 1.0
+                rows.append({"Metric": "YTD", "Value": float(ytd_ret)})
+
+            def _window_ret(window_days: int):
+                if len(nav) < 2:
+                    return None
+                start_idx = max(0, len(nav) - window_days)
+                sub = nav.iloc[start_idx:]
+                if len(sub) >= 2:
+                    return sub.iloc[-1] / sub.iloc[0] - 1.0
+                return None
+
+            three_m = _window_ret(63)
+            if three_m is not None:
+                rows.append({"Metric": "3M", "Value": float(three_m)})
+
+            six_m = _window_ret(126)
+            if six_m is not None:
+                rows.append({"Metric": "6M", "Value": float(six_m)})
+
+            one_y = _window_ret(252)
+            if one_y is not None:
+                rows.append({"Metric": "1Y", "Value": float(one_y)})
+
+        # Append annualized metrics
+        if pd.notna(cagr):
+            rows.append({"Metric": "Annualized Return (CAGR)",
+                        "Value": float(cagr)})
+        if pd.notna(ann_vol):
+            rows.append({"Metric": "Annualized Volatility",
+                        "Value": float(ann_vol)})
+
+        if rows:
+            return pd.DataFrame(rows)
+
+        # Fallback to whatever calculate_stats returned (if any)
+        if not stats.empty:
+            return stats.reset_index().rename(columns={"index": "Metric"})
+
+        return pd.DataFrame()
     # --- Plot helpers returning matplotlib figures for embedding ---
 
     def plot_monthly_heatmap_fig(self):

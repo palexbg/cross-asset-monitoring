@@ -81,8 +81,15 @@ class FactorRiskEngine():
     def _drop_const(beta_obj: Union[pd.Series, pd.DataFrame]):
         """Drop intercept column/entry named 'const' from betas object."""
         if isinstance(beta_obj, pd.Series):
-            return beta_obj.drop(labels=["const"])
-        return beta_obj.drop(columns=["const"])
+            # Drop label if present, otherwise return unchanged
+            try:
+                return beta_obj.drop(labels=["const"])
+            except Exception:
+                return beta_obj
+        # DataFrame: drop column if it exists, ignore otherwise
+        if "const" in beta_obj.columns:
+            return beta_obj.drop(columns=["const"])
+        return beta_obj
 
     @staticmethod
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
@@ -204,7 +211,12 @@ class FactorRiskEngine():
         last_dt = idx[-1]
         latest_factor_rc = rc_by_date.loc[last_dt].copy()
         latest_systematic = systematic_vol.loc[last_dt]
-        latest_idio = idio_vol.loc[last_dt].iloc[0]
+        # idio_vol.loc[last_dt] may be a scalar (float) or a Series; handle both
+        latest_idio = idio_vol.loc[last_dt]
+        try:
+            latest_idio = float(latest_idio)
+        except Exception:
+            latest_idio = np.nan
         latest_idio = latest_idio if np.isfinite(latest_idio) else np.nan
 
         if self.config.compute_on == ComputeOn.LATEST:
