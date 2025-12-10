@@ -185,7 +185,7 @@ class PortfolioStats:
         This mirrors QuantStats' drawdown calculation but exposes the
         underlying series so that we can plot it with Altair.
         """
-        dd = _drawdown_series_from_returns(self.excess_returns)
+        dd = self._drawdown_series_from_returns(self.excess_returns)
         return dd
 
     def plot_rolling_vol_fig(self, window: int = 126):
