@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+"""Definitions of investable asset, factor and FX universes used in the app. For now it uses only
+Yahoo Finance tickers."""
+
 from typing import List
 
 from .structs import Asset
 
 
 def get_investment_universe() -> List[Asset]:
+    """Return the list of investable assets for portfolio construction."""
+
     return [
         Asset(name="SPY", asset_class="Equity", ticker="SPY",
               description="S&P 500 ETF", currency="USD"),

@@ -12,6 +12,8 @@ def get_returns(
     lookback: int = 1,
     method: ReturnMethod | str = ReturnMethod.LOG
 ) -> pd.DataFrame:
+    """Compute log or simple returns over a given lookback horizon."""
+
     # Normalize method to ReturnMethod enum for safety
     if isinstance(method, str):
         try:

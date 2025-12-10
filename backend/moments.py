@@ -10,9 +10,7 @@ def clean_returns_outliers(
     initial_vols: np.ndarray,
     clip_treshold: float = 5.0
 ) -> np.ndarray:
-    """
-    We use it to clip very high (absolute) returns
-    """
+    """Clip extreme return outliers using an EWMA volatility estimate without look-ahead bias."""
 
     # Ideas
     # 1) We calculate the EWMA recursively using numba
@@ -51,7 +49,7 @@ def compute_ewma_mean_kernel(
     alpha: float,
     initial_mean: np.ndarray
 ) -> np.ndarray:
-
+    """Numba kernel computing EWMA means for a return matrix."""
     T, N = returns.shape
 
     mean_history = np.zeros((T, N))
@@ -74,7 +72,7 @@ def compute_ewma_cov_kernel(
     alpha: float,
     initial_cov: np.ndarray
 ) -> np.ndarray:
-
+    """Numba kernel computing an EWMA covariance tensor over time."""
     T, N = returns.shape
 
     cov_history = np.zeros((T, N, N))  # that is a simple tensor
@@ -102,6 +100,11 @@ def compute_ewma_covar(
     clip_outliers: bool = True,
     demean: bool = True
 ) -> pd.DataFrame:
+    """Compute an EWMA covariance tensor for multivariate returns.
+
+    Returns a (T, N, N) NumPy array aligned with the input index, with
+    optional outlier clipping, demeaning and annualization.
+    """
     # This is related to a multivariate version of IGARCH(1,1), a particular case of GARCH(1, 1)
 
     data = (returns

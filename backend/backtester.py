@@ -10,6 +10,8 @@ from .config import BacktestConfig
 
 @dataclass
 class BacktestResult():
+    """Container for backtest outputs such as NAV, holdings and cash."""
+
     nav: pd.Series
     holdings: pd.DataFrame
     weights: pd.DataFrame
@@ -18,9 +20,11 @@ class BacktestResult():
     portfolio_assets_prices: pd.DataFrame
 
     def gross_exposure(self) -> pd.Series:
+        """Return portfolio gross exposure over time (not yet implemented)."""
         raise NotImplementedError("Gross exposure is not implemented yet")
 
     def turnover(self) -> pd.Series:
+        """Return portfolio turnover over time (not yet implemented)."""
         raise NotImplementedError("Turnover not implemented yet")
 
 
@@ -28,6 +32,7 @@ def validate_inputs(
     prices: pd.DataFrame,
     weights: pd.DataFrame
 ) -> None:
+    """Validate that input price and weight matrices are consistent and clean."""
 
     if not prices.index.equals(weights.index):
         raise ValueError("Index Mismatch: Align data before backtesting.")
@@ -58,6 +63,20 @@ def run_backtest(
         rebal_freq: Optional[str] = None,
         rebal_vec: Optional[pd.Series] = None
 ) -> BacktestResult:
+    """Run a simple long-only backtest driven by target weights.
+
+    High-level flow
+    ---------------
+    1. Validate that ``prices`` and ``target_weights`` share the same
+       index, shape and are free of NaNs/inf.
+    2. Convert the boolean ``rebal_vec`` series into a NumPy mask
+       marking trade dates (typically rebalance dates).
+    3. Pass prices, target weights and the rebalancing mask into the
+       Numba ``backtest_kernel``, together with configuration such as
+       initial cash, transaction costs and execution flags.
+    4. Wrap the resulting NAV, holdings, weights, costs and cash series
+       into a ``BacktestResult`` dataclass for further analysis.
+    """
 
     validate_inputs(prices=prices, weights=target_weights)
 
@@ -114,6 +133,39 @@ def backtest_kernel(
     interest_cash: float = 0.0
 
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray,  np.ndarray, np.ndarray]:
+    """Numba-accelerated core backtest loop for a long-only portfolio.
+
+     High-level behaviour
+     --------------------
+     Simulates the evolution of a cash + long-only asset portfolio given:
+
+     - a matrix of asset prices ``prices[t, i]``,
+     - a matrix of target portfolio weights ``target_weights[t, i]``, and
+     - a boolean rebalancing mask ``is_rebal_day[t]``.
+
+     At each time step ``t`` the kernel:
+
+     1. Marks the current portfolio to market using ``prices[t, :]`` and
+         the current holdings to obtain a pre-trade NAV.
+     2. If ``is_rebal_day[t]`` is True, computes desired target holdings
+         in *units* from the target weights and a "sizing" NAV/prices
+         pair (yesterday's NAV and prices, except on the first day where
+         it uses ``initial_cash`` and today's prices).
+     3. Converts the gap between current and target holdings into trade
+         units, values those trades at today's prices, and computes
+         transaction costs as a bps charge on traded notional.
+     4. Updates cash by subtracting both the trade value and transaction
+         costs, and updates holdings by applying the trade units.
+     5. Re-marks the portfolio to market after trades to obtain the
+         end-of-day NAV, and records NAV, cash, holdings, costs and the
+         implied portfolio weights time series.
+
+     The execution flags (``trade_at_close``, ``reinvest_proceeds``,
+     ``use_last_known_price``, ``interest_cash``) are accepted for future
+     extension but not yet used; the current logic assumes trades execute
+     at the close, proceeds are fully reinvested, and cash does not earn
+     interest.
+     """
 
     T, N = prices.shape
 

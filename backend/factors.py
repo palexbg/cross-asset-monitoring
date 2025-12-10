@@ -1,4 +1,5 @@
-# Two Sigma factor lens
+"""Factor lens construction, exposure estimation, and return attribution."""
+
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
@@ -57,9 +58,9 @@ def triangulate_fx_factor(
 
 
 class FactorConstruction():
-    """
-    Following the architecture of Two Sigma's Factor Lens
-    See: https://www.venn.twosigma.com/resources/factor-lens-update
+    """Construct residualized and optionally scaled factor excess returns.
+
+    Follows the general architecture of https://www.venn.twosigma.com/resources/factor-lens-update
     """
 
     def __init__(
@@ -91,6 +92,21 @@ class FactorConstruction():
                             name in enumerate(self.ticker_map.values())}
 
     def run(self) -> pd.DataFrame:
+        """Build factor excess-return series from raw ETF prices.
+
+        Steps
+        -----
+        1. Compute 1-day and 5-day excess returns for all raw factor ETFs
+           using the configured risk-free rate.
+        2. Build an EWMA covariance tensor of 5-day excess returns over
+           the ``cov_span`` horizon.
+        3. Orthogonalize child factors versus their parents using that
+           covariance structure (via ``_orthogonalize``).
+        4. Optionally rescale residualized child factors so that their
+           realized volatility targets ``target_yearly_vol``.
+        5. Add daily log risk-free back to each factor so outputs are
+           total-return factor indices suitable for regression.
+        """
 
         # Compute returns
         ret1d_excess, ret5d_excess = self._calc_excess_returns()
@@ -150,6 +166,8 @@ class FactorConstruction():
         return factors
 
     def _calc_excess_returns(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Compute 1d and 5d excess returns for raw ETF factor proxies."""
+
         # Total returns that we need since we operate on ETFs and not pure long-short factors
         ret1d_total = get_returns(
             self.prices, lookback=1, method=ReturnMethod.LOG).fillna(0.0, limit=DataConfig.maxfill_days)
@@ -169,6 +187,21 @@ class FactorConstruction():
         return ret1d_excess, ret5d_excess
 
     def _orthogonalize(self, ret1d_excess, full_covmat):
+        """Orthogonalize child factors against parents using EWMA covariance.
+
+        For each factor with ``parents`` defined in ``factor_definition``
+        we:
+
+        1. Extract parent and child return series from ``ret1d_excess``.
+        2. Use the EWMA covariance tensor to form parent-parent and
+           parent-child covariance blocks at each time step.
+        3. Solve for regression betas of the child on its parents using a
+           small ridge for numerical stability.
+        4. Store the residual (child minus explained part) as the
+           orthogonalized child factor return.
+
+        Top-level factors (no parents) are left unchanged.
+        """
 
         output = pd.DataFrame(
             index=ret1d_excess.index, columns=self.ticker_map.keys())
@@ -231,6 +264,8 @@ def _residualization_engine(
 
 
 class FactorExposure():
+    """Estimate factor betas and decompose portfolio returns into factors."""
+
     def __init__(self,
                  risk_factors: pd.DataFrame,
                  nav: pd.DataFrame,
@@ -239,6 +274,8 @@ class FactorExposure():
                  smoothing_window: int = 5,
                  risk_free_rate: Optional[pd.Series] = None,
                  ):
+        """Create a factor exposure model for a portfolio and factor set."""
+
         # params
         self.analysis_mode = analysis_mode
         self.lookback = lookback
@@ -272,6 +309,18 @@ class FactorExposure():
             rf_5d, axis=0).fillna(0.0, limit=DataConfig.maxfill_days)
 
     def run(self):
+        """Estimate factor betas on smoothed excess returns.
+
+        In FULL mode, runs a single OLS regression of 5-day portfolio
+        excess returns on 5-day factor excess returns using HAC-robust
+        standard errors, and broadcasts the resulting betas to the last
+        available date.
+
+        In ROLLING mode, walks through time with a ``lookback``-length
+        window, re‑estimating the same regression on each window to
+        obtain time-varying betas, t‑stats, R-squared and residual
+        variance.
+        """
 
         # ['const', 'Equity', 'Rates', ...]
         cols = ['const'] + list(self.X_excess.columns)
@@ -368,11 +417,28 @@ class FactorExposure():
         return self.betas, self.t_stats, self.Rsquared, self.resid
 
     def decompose_daily_returns(self, daily_nav: pd.DataFrame, daily_factors: pd.DataFrame, trend_window: int = 126) -> dict:
-        """
-        Decomposes returns into factor contributions.
+        """Decompose portfolio returns into daily and rolling factor contributions.
+
+        Procedure
+        ---------
+        1. Align portfolio NAV, factor indices and betas on a common
+           date index.
+        2. Compute daily log returns for portfolio and factors and
+           subtract the daily log risk-free rate to get excess returns.
+        3. Multiply factor excess returns by betas to obtain per-factor
+           daily contributions to portfolio excess return; the gap
+           between portfolio excess return and total explained excess is
+           labeled ``Residual``.
+        4. Add explicit ``RiskFree`` and ``Total`` (raw portfolio log
+           return) components to the daily output.
+        5. Build a ``trend`` view by summing daily log contributions
+           over a ``trend_window`` and converting back to simple
+           cumulative returns.
+
         Returns a dictionary with:
-          - 'daily': Daily log return contributions (for stats/calculations)
-          - 'trend': Rolling cumulative simple return contributions (for the Heatmap)
+              - ``daily``: daily log-return contributions for analysis
+              - ``trend``: rolling cumulative simple contributions for
+                visualization in heatmaps.
         """
 
         # align
@@ -424,6 +490,7 @@ class FactorExposure():
 
     @staticmethod
     def _calculate_one_regression(X: pd.DataFrame, Y: Union[pd.Series, pd.DataFrame]) -> Tuple[pd.Series, pd.Series, pd.Series]:
+        """Run a single OLS regression with HAC robust errors."""
         X = sm.add_constant(X)
         model = sm.OLS(Y, X, missing='drop')
         results = model.fit(cov_type='HAC', cov_kwds={'maxlags': 5})

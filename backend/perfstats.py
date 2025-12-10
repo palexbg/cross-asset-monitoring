@@ -20,6 +20,8 @@ from backend.data import DataConfig
 
 
 class PortfolioStats:
+    """Lightweight wrapper around QuantStats for portfolio-level metrics."""
+
     def __init__(self,
                  backtest_result: BacktestResult,
                  risk_free: pd.Series

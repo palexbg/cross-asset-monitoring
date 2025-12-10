@@ -9,6 +9,8 @@ from .structs import CovarianceMethod, ComputeOn
 
 
 class FactorRiskEngine():
+    """Compute factor-level risk contributions and systematic / idiosyncratic vol."""
+
     def __init__(
         self,
         betas: Union[pd.Series, pd.DataFrame],
@@ -30,6 +32,7 @@ class FactorRiskEngine():
 
     @property
     def returns(self) -> pd.DataFrame:
+        """Factor return series used for the risk calculations."""
         if self._returns is None:
             self._returns = get_returns(
                 self.factor_prices,
@@ -39,6 +42,7 @@ class FactorRiskEngine():
 
     @property
     def cov_tensor(self) -> np.ndarray:
+        """Cached covariance tensor built from factor returns and config."""
         if self._cov_tensor is None:
             if self.config.cov_method == CovarianceMethod.EWMA:
                 self._cov_tensor = compute_ewma_covar(
@@ -60,18 +64,21 @@ class FactorRiskEngine():
 
     @property
     def latest_covmat(self) -> pd.DataFrame:
+        """Latest covariance matrix snapshot as a DataFrame."""
         cov = self.cov_tensor[-1]
         cols = self.returns.columns
         return pd.DataFrame(cov, index=cols, columns=cols)
 
     @staticmethod
     def _drop_const(beta_obj: Union[pd.Series, pd.DataFrame]):
+        """Drop intercept column/entry named 'const' from betas object."""
         if isinstance(beta_obj, pd.Series):
             return beta_obj.drop(labels=["const"])
         return beta_obj.drop(columns=["const"])
 
     @staticmethod
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
+        """Attach a MultiIndex (Date, Factor) to a factor metrics frame."""
         out = df.copy()
         out["Date"] = dt
         out["Factor"] = out.index
@@ -82,6 +89,29 @@ class FactorRiskEngine():
         )
 
     def run(self) -> dict:
+        """Compute factor risk contributions and systematic/idiosyncratic vol.
+
+        Procedure
+        ---------
+        1. Align betas with available factor return dates and select the
+           dates to evaluate based on ``config.compute_on`` (all,
+           rebalance-only or latest).
+        2. For each selected date, pull the corresponding covariance
+           matrix slice from the cached covariance tensor.
+        3. Compute systematic variance as :math:`B^T \Sigma B`, take the
+           square root to obtain systematic volatility, and guard against
+           zero/non-finite values.
+        4. Compute marginal contributions to risk (MCTR) as
+           :math:`\Sigma B / \sigma` and contributions to risk (CTR) as
+           :math:`B \cdot \text{MCTR}`; ``ctr_pct`` is CTR divided by
+           portfolio volatility so that the contributions sum to 1.
+        5. If residual variance is provided, convert it to idiosyncratic
+           volatility, with optional annualization.
+
+        Returns a dictionary with factor-level risk contributions by
+        date plus systematic and idiosyncratic volatility series, and
+        convenience "latest" snapshots.
+        """
         B = self._drop_const(self.betas)
 
         # Factors and betas must align, as we often use warmup period to build factors while betas keep NANs
@@ -187,6 +217,8 @@ class FactorRiskEngine():
 
 
 class AssetRiskEngine():
+    """Compute asset-level risk contributions and portfolio volatility."""
+
     def __init__(self,
                  weights: Union[pd.Series, pd.DataFrame],
                  prices: pd.DataFrame,
@@ -205,6 +237,7 @@ class AssetRiskEngine():
 
     @property
     def returns(self) -> pd.DataFrame:
+        """Asset return series used for risk calculations."""
         if self._returns is None:
             self._returns = get_returns(
                 self.prices,
@@ -214,6 +247,7 @@ class AssetRiskEngine():
 
     @property
     def cov_tensor(self) -> np.ndarray:
+        """Cached covariance tensor built from asset returns and config."""
         if self._cov_tensor is None:
             if self.config.cov_method == CovarianceMethod.EWMA:
                 self._cov_tensor = compute_ewma_covar(
@@ -235,12 +269,14 @@ class AssetRiskEngine():
 
     @property
     def latest_covmat(self) -> pd.DataFrame:
+        """Latest asset covariance matrix snapshot as a DataFrame."""
         cov = self.cov_tensor[-1]
         cols = self.returns.columns
         return pd.DataFrame(cov, index=cols, columns=cols)
 
     @staticmethod
     def _attach_date_index(df: pd.DataFrame, dt: pd.Timestamp) -> pd.DataFrame:
+        """Attach a MultiIndex (Date, Asset) to an asset metrics frame."""
         out = df.copy()
         out["Date"] = dt
         out["Asset"] = out.index
@@ -251,6 +287,26 @@ class AssetRiskEngine():
         )
 
     def run(self) -> dict:
+        """Compute asset risk contributions and portfolio volatility.
+
+        Procedure
+        ---------
+        1. Select the weight rows to evaluate based on
+           ``config.compute_on`` (all dates, rebalance-only, or latest)
+           and align them with the available return index.
+        2. For each selected date, pull the matching covariance matrix
+           slice from the cached covariance tensor.
+        3. Compute portfolio variance as :math:`w^T \Sigma w`, take the
+           square root to get portfolio volatility, and mask out
+           zero/non-finite values.
+        4. Compute marginal contributions to risk (MCTR) as
+           :math:`\Sigma w / \sigma` and contributions to risk (CTR) as
+           :math:`w \cdot \text{MCTR}`; ``ctr_pct`` is CTR divided by
+           portfolio volatility so that buckets sum to 100% of risk.
+        5. Package per-date risk-contribution DataFrames together with
+           a time series of portfolio volatility and a convenient
+           "latest" snapshot for dashboards.
+        """
         W = self.weights
 
         # Determine which dates to compute on based on compute_on

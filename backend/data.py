@@ -12,11 +12,14 @@ from backend.config import DataConfig
 
 
 class DataFetcher(ABC):
+    """Abstract interface for fetching historical close prices from a data API."""
+
     @abstractmethod
     def fetch_close_prices(self, ticker_symbol: list[str],
                            start_date: str,
                            end_date: str,
                            store_data: bool = True) -> pd.DataFrame:
+        """Return a DataFrame of close prices for the requested tickers."""
         pass
 
 
@@ -66,11 +69,15 @@ class YFinanceDataFetcher(DataFetcher):
 
 
 class UniverseLoader:
-    """Engine-agnostic helper that prepares a full price universe
-    using any DataFetcher implementation.
+    """Helper that prepares an asset, factor and FX price universe.
+
+    Uses a ``DataFetcher`` implementation to either load cached data
+    or download prices on demand, then normalizes to base currency and
+    attaches a daily risk-free rate.
     """
 
     def __init__(self, data_api: DataFetcher):
+        """Create a loader bound to a particular data API implementation."""
         self.data_api = data_api
 
     def load_or_fetch_universe(
@@ -83,16 +90,30 @@ class UniverseLoader:
         start_date: str,
         end_date: str,
     ) -> Tuple[pd.DataFrame, pd.Series]:
-        """Load from CSV if present; otherwise download via the
-        configured DataFetcher. Then normalize, dailify RF, and
-        build FX factor prices.
+        """Load or fetch the full price universe and risk-free series.
+
+        Steps
+        -----
+        1. Derive the unique tickers for investment assets, factor ETFs
+           and FX pairs from the provided metadata.
+        2. If a CSV file exists, load it and optionally top it up with
+           any missing tickers via the configured ``DataFetcher``;
+           otherwise, download all required tickers from scratch.
+        3. Forward-fill missing observations up to ``DataConfig.maxfill_days``
+           to smooth over short gaps in the raw data.
+        4. Convert asset prices into the chosen base currency using
+           FX pairs and ``normalize_prices_to_base_currency``.
+        5. Attach a daily simple risk-free return series via
+           ``dailify_risk_free``.
+        6. For the FX factor, construct a base-currency factor index via
+           ``triangulate_fx_factor`` and append it to the price panel.
 
         Returns
         -------
         close : DataFrame
             All prices (assets + factors + FX factor) indexed by Date.
         risk_free_rate : Series
-            Daily risk-free rate aligned to close.index.
+            Daily risk-free rate aligned to ``close.index``.
         """
 
         inv_meta = list(investment_universe)
