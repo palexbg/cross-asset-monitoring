@@ -5,7 +5,7 @@ from backend.config import DataConfig, BacktestConfig, FactorConfig
 def test_data_config_defaults():
     """Test DataConfig default values."""
     cfg = DataConfig()
-    assert cfg.etf_data_path == 'etf_close_prices.csv'
+    assert cfg.etf_data_path == 'cached_etf_close_prices.csv'
     assert cfg.maxfill_days == 5
 
 
