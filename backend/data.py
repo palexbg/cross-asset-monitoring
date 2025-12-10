@@ -8,6 +8,7 @@ import pandas as pd
 from backend.structs import Asset, Currency
 from backend.utils import normalize_prices_to_base_currency, dailify_risk_free
 from backend.factors import triangulate_fx_factor
+from backend.config import DataConfig
 
 
 class DataFetcher(ABC):
@@ -56,7 +57,7 @@ class YFinanceDataFetcher(DataFetcher):
                  .set_index(['Date', 'Ticker'])
                  ['Value']
                  .unstack()
-                 ).ffill(limit=5)
+                 )
 
         if store_data:
             close.to_csv('etf_close_prices.csv', index=True)
@@ -121,6 +122,9 @@ class UniverseLoader:
                 start_date=start_date,
                 end_date=end_date,
             )
+
+        # Forward fill missing data
+        close.ffill(limit=DataConfig.maxfill_days, inplace=True)
 
         # Normalize to base currency
         close = normalize_prices_to_base_currency(

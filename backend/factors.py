@@ -3,8 +3,12 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 
+from backend.config import DataConfig
 from .moments import compute_ewma_covar
-from .config import FactorDef, FactorConfig
+from .config import (
+    FactorDef,
+    FactorConfig
+)
 from .utils import get_returns
 from .structs import FactorAnalysisMode, ReturnMethod, Currency
 
@@ -89,7 +93,7 @@ class FactorConstruction():
     def run(self) -> pd.DataFrame:
 
         # Compute returns
-        ret1d_total, ret1d_excess, ret5d_excess = self._calc_returns()
+        ret1d_excess, ret5d_excess = self._calc_excess_returns()
 
         ordered_tickers = list(self.ticker_map.values())
 
@@ -105,42 +109,64 @@ class FactorConstruction():
 
         # Perform orthogonalization
         factors = self._orthogonalize(
-            ret1d_total=ret1d_total,
             ret1d_excess=ret1d_excess,
             full_covmat=full_covmat5d
         )
-        # scale the residualized factors rollingly (later on we add exponentially)
-        # That way the betas later on are comparable and interpretable
 
-        for f in self.factor_definition:
+        if self.scale_factors:
+            factor_vars = compute_ewma_covar(
+                factors,
+                span=120,  # self.cov_span,
+                annualize=True,  # Annualize here to get annualized vol directly
+                annualization_factor=self.days_in_year,
+                clip_outliers=True
+            )
+
+        # scale the residualized factors rollingly (later on we add exponentially)
+        # and ALSO add the risk free rate back to get the total
+        #   - we add the risk free back to get total returns, which we then store and can use the
+        #   - factors for further analyses we have to do this because we are dealing with ETFs here,
+        #   - not pure long-short
+
+        for i, f in enumerate(self.factor_definition):
             col = f.name
             if f.parents and self.scale_factors:
-                rolling_vol = pd.Series(factors[col]).rolling(window=60).std()
-                scaler = self.target_daily_vol / rolling_vol
+                # rolling vol scaling - only on the residualized part, year of vola estimation
+                realized_var = factor_vars[:, i, i]
+                realized_vol = np.sqrt(realized_var)
+
+                valid_len = len(realized_vol)
+                aligned_index = factors.index[-valid_len:]
+
+                vol_series = pd.Series(
+                    realized_vol, index=aligned_index).replace(0.0, np.nan)
+
+                scaler = self.target_yearly_vol / vol_series
                 factors[col] = factors[col] * scaler
 
-            # we add the risk free back to get total returns, which we then store and can use the factors for further analyses
-            # we have to do this because we are dealing with ETFs here, not pure long-short
+            # add back risk free to get total returns
             factors[col] = factors[col] + np.log1p(self.rf.values)
 
         return factors
 
-    def _calc_returns(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def _calc_excess_returns(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
         # Total returns that we need since we operate on ETFs and not pure long-short factors
         ret1d_total = get_returns(
-            self.prices, lookback=1, method=ReturnMethod.LOG).fillna(0.0, limit=5)
+            self.prices, lookback=1, method=ReturnMethod.LOG).fillna(0.0, limit=DataConfig.maxfill_days)
         ret5d_total = get_returns(
-            self.prices, lookback=5, method=ReturnMethod.LOG).fillna(0.0, limit=5)
+            self.prices, lookback=5, method=ReturnMethod.LOG).fillna(0.0, limit=DataConfig.maxfill_days)
 
         # Excess returns, fix the risk free rate here
         rf_daily = np.log1p(self.rf)
         rf_5d = rf_daily * 5
 
-        ret1d_excess = ret1d_total.sub(rf_daily, axis=0).fillna(0.0, limit=5)
-        ret5d_excess = ret5d_total.sub(rf_5d, axis=0).fillna(0.0, limit=5)
+        ret1d_excess = ret1d_total.sub(rf_daily, axis=0).fillna(
+            0.0, limit=DataConfig.maxfill_days)
+        ret5d_excess = ret5d_total.sub(rf_5d, axis=0).fillna(
+            0.0, limit=DataConfig.maxfill_days)
 
         # Return Total (for output construction) AND Excess (for beta calculation)
-        return ret1d_total, ret1d_excess, ret5d_excess
+        return ret1d_excess, ret5d_excess
 
     def _orthogonalize(self, ret1d_excess, full_covmat):
 
@@ -222,7 +248,8 @@ class FactorExposure():
         else:
             self.rf = pd.Series(0.0, index=nav.index)
 
-        rf_daily = np.log1p(self.rf)
+        rf_daily = np.log1p(self.rf)  # we convert it to log returns here
+        # we will use it later on for the 5d smoothed factor exposures
         rf_5d = rf_daily * smoothing_window
 
         if self.analysis_mode not in [FactorAnalysisMode.ROLLING, FactorAnalysisMode.FULL]:
@@ -240,9 +267,9 @@ class FactorExposure():
 
         # compute 5 days rolling returns to smoothen out potential asynchronicity in factors
         self.Y_excess = get_returns(nav, smoothing_window, method=ReturnMethod.LOG).sub(
-            rf_5d, axis=0).fillna(0.0, limit=5)
+            rf_5d, axis=0).fillna(0.0, limit=DataConfig.maxfill_days)
         self.X_excess = get_returns(risk_factors, smoothing_window, method=ReturnMethod.LOG).sub(
-            rf_5d, axis=0).fillna(0.0, limit=5)
+            rf_5d, axis=0).fillna(0.0, limit=DataConfig.maxfill_days)
 
     def run(self):
 
@@ -340,41 +367,60 @@ class FactorExposure():
 
         return self.betas, self.t_stats, self.Rsquared, self.resid
 
-    def decompose_daily_returns(self, daily_nav: pd.DataFrame, daily_factors: pd.DataFrame) -> pd.DataFrame:
+    def decompose_daily_returns(self, daily_nav: pd.DataFrame, daily_factors: pd.DataFrame, trend_window: int = 126) -> dict:
+        """
+        Decomposes returns into factor contributions.
+        Returns a dictionary with:
+          - 'daily': Daily log return contributions (for stats/calculations)
+          - 'trend': Rolling cumulative simple return contributions (for the Heatmap)
+        """
 
-        # Align
+        # align
         common_idx = self.betas.index.intersection(
             daily_nav.index).intersection(daily_factors.index)
-        r_f_simple = self.rf.loc[common_idx]              # simple daily RF
-        r_f_log = np.log1p(r_f_simple)                  # daily log RF
 
+        r_f_simple = self.rf.loc[common_idx]
+        r_f_log = np.log1p(r_f_simple)
+
+        # beta
         betas = self.betas.loc[common_idx]
         if 'const' in betas.columns:
             betas = betas.drop(columns=['const'])
 
-        # Get Daily Excess Returns
+        r_port_full = get_returns(daily_nav, method=ReturnMethod.LOG)
+        r_factors_full = get_returns(daily_factors, method=ReturnMethod.LOG)
 
-        r_port = get_returns(daily_nav.loc[common_idx])
+        r_port = r_port_full.loc[common_idx]
+        r_factors = r_factors_full.loc[common_idx]
+
+        # Excess Returns
         r_port_excess = r_port.sub(r_f_log, axis=0)
-
-        r_factors = get_returns(daily_factors.loc[common_idx])
         r_factors_excess = r_factors.sub(r_f_log, axis=0)
 
-        # contribution
+        # (Beta * Factor Excess Return)
         contribs = r_factors_excess.multiply(betas)
 
-        # Alpha = R_port_excess - Sum(Factor_Contribs)
-        total_explained = contribs.sum(axis=1)
-        alpha = r_port_excess - total_explained
+        total_explained_excess = contribs.sum(axis=1)
+        specific_selection = r_port_excess - total_explained_excess
 
-        # 4. Compile Result
-        output = contribs.copy()
-        output['RiskFree'] = r_f_log
-        output['Alpha'] = alpha
-        output['Total_Modeled'] = total_explained + r_f_log + alpha
-        output['Total_Actual'] = r_port
+        # We explicitly add the rows required for the Venn plot
+        daily_output = contribs.copy()
+        daily_output['RiskFree'] = r_f_log
+        # Selection in terminology of CFA
+        daily_output['Residual'] = specific_selection
 
-        return output
+        daily_output['Total'] = r_port
+
+        # We sum the log returns over the window to get cumulative log return
+        trend_log = daily_output.rolling(window=trend_window).sum()
+
+        # Convert to Simple Returns for display
+        trend_output = np.exp(trend_log) - 1
+
+        return {
+            "daily": daily_output,
+            "trend": trend_output
+        }
 
     @staticmethod
     def _calculate_one_regression(X: pd.DataFrame, Y: Union[pd.Series, pd.DataFrame]) -> Tuple[pd.Series, pd.Series, pd.Series]:

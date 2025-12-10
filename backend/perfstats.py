@@ -1,31 +1,36 @@
+"""
+This a wrapper module around the QuantStats package to compute portfolio performance
+statistics, reports, and plots. Most functions operate on Excess Returns,
+however, QuantStats natively only accepts a fixed risk-free rate float, and 
+hence others needed to be adapted here. QuantStats can provide a comprehensive
+static html report if needed, function is implemented in get_html_report(), but 
+it is not used for the dashboard UI.
+"""
+
+
 import quantstats as qs
 import pandas as pd
 import numpy as np
+
 from .backtester import BacktestResult
 from .utils import get_returns
 from .structs import ReturnMethod
-from typing import Optional, Union
-import matplotlib.pyplot as plt
+from typing import Optional
+from backend.data import DataConfig
 
 
 class PortfolioStats:
     def __init__(self,
                  backtest_result: BacktestResult,
-                 risk_free: Union[float, pd.Series] = 0.0):
+                 risk_free: pd.Series
+                 ):
 
         self.backtest_result = backtest_result
         self.nav = backtest_result.nav
 
         self.returns = get_returns(self.nav, method=ReturnMethod.SIMPLE)
-
-        # handle risk free
-        if isinstance(risk_free, pd.Series):
-            # align
-            self.rf_series = risk_free.reindex(self.returns.index).fillna(0.0)
-        else:
-            # Convert constant float (annual %) to daily decimal series
-            rf_daily = (risk_free / 100.0) / 252.0
-            self.rf_series = pd.Series(rf_daily, index=self.returns.index)
+        self.rf_series = risk_free.reindex(self.returns.index).fillna(
+            0.0, limit=DataConfig.maxfill_days)
 
         # excess returns as quantstats handles only a fixed float
         self.excess_returns = self.returns - self.rf_series
@@ -47,40 +52,44 @@ class PortfolioStats:
 
     def plot_monthly_heatmap_fig(self):
         """Return a matplotlib Figure with the monthly returns heatmap.
-
-        We keep only the returns actually observed in the backtest period;
-        months with no data stay NaN and should render as blank/white
-        instead of 0.00.
         """
 
-        # Use only non-NaN returns from the backtest; do not pad or extend
-        # beyond the NAV index.
         r = self.excess_returns.copy()
-        # Restrict strictly to the NAV index bounds
+
         r = r.loc[self.nav.index.min(): self.nav.index.max()]
         r = r.dropna()
 
         fig = qs.plots.monthly_heatmap(r, show=False)
-        # Some quantstats versions return an Axes, others a Figure; normalize to Figure.
-        if hasattr(fig, "get_figure"):
-            fig = fig.get_figure()
+
+        fig = fig.get_figure()
         return fig
 
     def plot_drawdown_fig(self):
         """Return a matplotlib Figure with the drawdown curve."""
 
         fig = qs.plots.drawdown(self.excess_returns, show=False)
-        if hasattr(fig, "get_figure"):
-            fig = fig.get_figure()
+
+        fig = fig.get_figure()
+
         return fig
+
+    def get_drawdown_series(self) -> pd.Series:
+        """Return drawdown series for use in Streamlit charts.
+
+        This mirrors QuantStats' drawdown calculation but exposes the
+        underlying series so that we can plot it with Altair.
+        """
+        # QuantStats' stats.to_drawdown_series gives a drawdown time series
+        dd = qs.stats.to_drawdown_series(self.excess_returns)
+        return dd
 
     def plot_rolling_vol_fig(self, window: int = 126):
         """Return a matplotlib Figure with rolling volatility (window in days)."""
 
         fig = qs.plots.rolling_volatility(
             self.excess_returns, period=window, show=False)
-        if hasattr(fig, "get_figure"):
-            fig = fig.get_figure()
+
+        fig = fig.get_figure()
         return fig
 
     def get_rolling_vol_series(self, window: int = 126) -> pd.Series:
@@ -91,6 +100,7 @@ class PortfolioStats:
         with native Streamlit charts (matching heights with st.line_chart).
         """
         r = self.excess_returns.copy().dropna()
+
         # Daily returns rolling std scaled to annual vol with sqrt(252)
         rv = r.rolling(window=window).std() * np.sqrt(252)
         return rv
@@ -106,10 +116,7 @@ class PortfolioStats:
         # If benchmark is provided, we should also convert it to Excess Returns
         # for a fair "Apples to Apples" comparison (Alpha), though strictly
         # QuantStats usually takes raw benchmarks.
-        # For now, we pass the raw benchmark, but note that Sharpe comparisons
-        # will be (Strategy Excess) vs (Benchmark Raw).
 
-        # Ideally, subtract RF from benchmark too if you want "Active vs Active":
         if benchmark is not None:
             # Align and subtract RF
             bench_ret = get_returns(benchmark, method=ReturnMethod.SIMPLE).reindex(

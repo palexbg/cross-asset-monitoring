@@ -27,7 +27,7 @@ def get_returns(
         raise ValueError("method must be either 'log' or 'simple'")
 
     if np.isnan(returns.values).any():
-        # base class for warnings about dubious runtime behavior
+        # base class for warnings about strangeness
         warnings.warn(
             "There are remaining NaNs in the series", RuntimeWarning)
     return returns
@@ -92,6 +92,7 @@ def dailify_risk_free(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """
     Hard-coded risk-free selection and processing by base currency.
+    For now it assumes and works only with Yahoo Finance data.
 
     Assumptions:
       USD -> ^IRX     (annualized % yield index)

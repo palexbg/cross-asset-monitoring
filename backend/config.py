@@ -7,6 +7,12 @@ from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 
 
 @dataclass(frozen=True)
+class DataConfig:
+    etf_data_path: str = 'etf_close_prices.csv'
+    maxfill_days: int = 5  # maximum number of consecutive missing days to fill forward
+
+
+@dataclass(frozen=True)
 class FactorRiskConfig:
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE

@@ -2,25 +2,10 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from typing import Union, Optional, Tuple
+from typing import Optional, Tuple
 from numba import njit
 from dataclasses import dataclass
 from .config import BacktestConfig
-
-# TODO
-# *Add interest on cash holdings
-# *Add the carry on holdings
-# check if the size of rebal_vec, prices and weights are all proper
-# also the dates needs to match
-# and the weights need to sum up to 1 at every point
-# check if rebal_vec contains booleans
-# add trading at open prices (combinations - close to open, open to open, close to close, open to close)
-# add long/short/gross/net legs too.
-# Perhaps one can optimize this further by just using numpy, but it is nice to have the dates
-# Also additional objects from here would be interesting to extract, I woudl say.
-# So a dataclass would make A LOT more sense (a backtesting object)
-# Assume that we only trade at close now
-# This should be located elsewhere
 
 
 @dataclass
@@ -122,7 +107,7 @@ def backtest_kernel(
     # Execution logic
     transaction_costs_bps: float = 0.0,
 
-    # -- this needs to be fixed and accounted for
+    # -- not implemented yet --
     trade_at_close: bool = True,
     reinvest_proceeds: bool = True,
     use_last_known_price: bool = True,
