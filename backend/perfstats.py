@@ -170,15 +170,22 @@ class PortfolioStats:
         fig = fig.get_figure()
 
         return fig
-
+	
+    def _drawdown_series_from_returns(excess_returns: pd.Series) -> pd.Series:
+	    # Convert returns to a pseudo-price/NAV path
+	    nav = (1.0 + excess_returns.fillna(0.0)).cumprod()
+	    peak = nav.cummax()
+	    dd = nav / peak - 1.0
+	    dd.name = "drawdown"
+	    return dd
+	    
     def get_drawdown_series(self) -> pd.Series:
         """Return drawdown series for use in Streamlit charts.
 
         This mirrors QuantStats' drawdown calculation but exposes the
         underlying series so that we can plot it with Altair.
         """
-        # QuantStats' stats.to_drawdown_series gives a drawdown time series
-        dd = qs.stats.to_drawdown_series(self.excess_returns)
+        dd = _drawdown_series_from_returns(self.excess_returns)
         return dd
 
     def plot_rolling_vol_fig(self, window: int = 126):
