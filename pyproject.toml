@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cross-asset-monitoring"
+version = "0.1.0"
+description = "Cross-asset monitoring Streamlit dashboard and backtesting engines"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [ { name = "Repo Owner", email = "you@example.com" } ]
+
+# Minimal runtime dependencies. Use `requirements.txt` for an exact, pinned
+# environment used for development and CI.
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "streamlit>=1.20",
+  "numba>=0.56",
+  "statsmodels>=0.14",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "black",
+  "ruff",
+  "isort",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*"]

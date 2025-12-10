@@ -1,6 +1,5 @@
 */__pycache__
 .venv/
-*.csv
 todo.md
 *.txt
 *.html
@@ -8,3 +7,5 @@ clipboard.py
 examples/__pycache__
 .vscode/
 __pycache__
+Dockerfile
+.pytest_cache
