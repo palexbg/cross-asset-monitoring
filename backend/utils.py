@@ -1,3 +1,12 @@
+"""Shared utility functions for returns, indices, rebalancing and currencies.
+
+Contains helpers to compute log/simple returns, rebuild price indices,
+derive rebalance calendars, dailify risk-free rates and normalize
+prices into a common base currency for the rest of the backend.
+"""
+
+from __future__ import annotations
+
 from typing import Tuple
 
 import pandas as pd
@@ -12,6 +21,8 @@ def get_returns(
     lookback: int = 1,
     method: ReturnMethod | str = ReturnMethod.LOG
 ) -> pd.DataFrame:
+    """Compute log or simple returns over a given lookback horizon."""
+
     # Normalize method to ReturnMethod enum for safety
     if isinstance(method, str):
         try:
@@ -27,7 +38,7 @@ def get_returns(
         raise ValueError("method must be either 'log' or 'simple'")
 
     if np.isnan(returns.values).any():
-        # base class for warnings about dubious runtime behavior
+        # base class for warnings about strangeness
         warnings.warn(
             "There are remaining NaNs in the series", RuntimeWarning)
     return returns
@@ -92,6 +103,7 @@ def dailify_risk_free(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """
     Hard-coded risk-free selection and processing by base currency.
+    For now it assumes and works only with Yahoo Finance data.
 
     Assumptions:
       USD -> ^IRX     (annualized % yield index)

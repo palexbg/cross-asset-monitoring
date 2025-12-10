@@ -1,3 +1,5 @@
+"""Configuration dataclasses for data loading, risk, backtest and factors."""
+
 from dataclasses import dataclass
 from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 
@@ -7,7 +9,17 @@ from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 
 
 @dataclass(frozen=True)
+class DataConfig:
+    """Global data-related settings used across the backend."""
+
+    # Path to the cached CSV containing ETF close prices used as a local convenience cache
+    etf_data_path: str = 'cached_etf_close_prices.csv'
+    maxfill_days: int = 5  # maximum number of consecutive missing days to fill forward
+
+
+@dataclass(frozen=True)
 class FactorRiskConfig:
+    """Configuration for factor risk calculations (covariance and returns)."""
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE
     cov_method: CovarianceMethod = CovarianceMethod.EWMA
@@ -22,6 +34,7 @@ class FactorRiskConfig:
 
 @dataclass(frozen=True)
 class AssetRiskConfig:
+    """Configuration for asset-level risk calculations (covariance and returns)."""
     cov_method: CovarianceMethod = CovarianceMethod.EWMA
     span: int = 63  # days
     returns_method: ReturnMethod = ReturnMethod.SIMPLE
@@ -35,6 +48,7 @@ class AssetRiskConfig:
 
 @dataclass(frozen=True)
 class BacktestConfig:
+    """Configuration for the generic long-only backtester."""
     initial_cash: float = 1_000_000.0
     cost_rate: float = 0.0010
     trade_at_close: bool = True
@@ -44,12 +58,13 @@ class BacktestConfig:
 
 # ----------------------------------
 # FACTOR LENS CONFIGURATION
-# Following Two Sigma's Factor Lens setup
+# Heavily inspired by https://www.venn.twosigma.com/resources/factor-lens-update
 # ----------------------------------
 
 
 @dataclass(frozen=True)
 class FactorConfig:
+    """Configuration for factor lens construction and scaling behaviour."""
     smoothing_window: int = 5  # days
     lookback_window: int = 120  # days
     smoothing_window: int = 5  # days
