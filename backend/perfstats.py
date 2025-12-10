@@ -171,7 +171,7 @@ class PortfolioStats:
 
         return fig
 	
-    def _drawdown_series_from_returns(excess_returns: pd.Series) -> pd.Series:
+    def _drawdown_series_from_returns(self, excess_returns: pd.Series) -> pd.Series:
 	    # Convert returns to a pseudo-price/NAV path
 	    nav = (1.0 + excess_returns.fillna(0.0)).cumprod()
 	    peak = nav.cummax()
