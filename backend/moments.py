@@ -1,3 +1,10 @@
+"""Numba kernels and helpers for return cleaning and covariance estimation.
+
+Implements EWMA-based mean and covariance recursion, simple outlier
+clipping on returns, and higher-level helpers to build covariance
+tensors used by the risk engines and factor construction.
+"""
+
 from numba import njit
 import numpy as np
 import pandas as pd

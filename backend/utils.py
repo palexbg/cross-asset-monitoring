@@ -1,3 +1,10 @@
+"""Shared utility functions for returns, indices, rebalancing and currencies.
+
+Contains helpers to compute log/simple returns, rebuild price indices,
+derive rebalance calendars, dailify risk-free rates and normalize
+prices into a common base currency for the rest of the backend.
+"""
+
 from typing import Tuple
 
 import pandas as pd

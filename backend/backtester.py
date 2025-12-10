@@ -1,3 +1,10 @@
+"""Backtest engine for long-only portfolios with target weights.
+
+Provides a simple long-only backtester built around a Numba
+``backtest_kernel`` plus a ``BacktestResult`` container for NAV,
+holdings, weights, cash and costs time series.
+"""
+
 import pandas as pd
 import numpy as np
 import warnings

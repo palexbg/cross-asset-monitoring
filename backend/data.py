@@ -1,3 +1,11 @@
+"""Data access layer and universe preparation utilities.
+
+Defines abstract and concrete data fetchers (currently using
+Yahoo Finance) and a ``UniverseLoader`` that assembles a consistent
+asset, factor and FX price panel with an attached daily risk-free
+series for downstream analysis.
+"""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Sequence, Tuple

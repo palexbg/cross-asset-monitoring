@@ -1,3 +1,11 @@
+"""Risk engines for assets and factors.
+
+Provides ``FactorRiskEngine`` and ``AssetRiskEngine`` which turn
+returns into covariance tensors and compute systematic/idio vol and
+contributions to risk (MCTR, CTR, ctr_pct) across time or at the
+latest snapshot.
+"""
+
 from typing import Union, Optional
 import pandas as pd
 import numpy as np
