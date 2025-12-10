@@ -414,13 +414,19 @@ def render_overview_tab(
                             y=alt.Y(f"{mat.index.name or 'year'}:O",
                                     sort=years, title=None),
                             text=alt.Text('ret:Q', format='.1%'),
-                            # Use a constant color for text to keep it legible;
-                            # could be enhanced with a conditional based on value.
-                            color=alt.value('black'),
+                            # Use a conditional color for text for legibility on
+                            # dark tiles: white for large absolute returns,
+                            # black otherwise.
+                            color=alt.condition(
+                                f"abs(datum.ret) > {max_abs * 0.45}",
+                                alt.value('white'),
+                                alt.value('black'),
+                            ),
                         )
                     )
 
-                    heatmap = (alt.layer(rect, text).properties(height=heatmap_height))
+                    heatmap = (alt.layer(rect, text).properties(
+                        height=heatmap_height))
 
                     st.altair_chart(heatmap, width='stretch')
                 except Exception:

@@ -63,42 +63,70 @@ class PortfolioStats:
         percentage-like metrics and ints for day-counts). The UI layer is
         responsible for formatting presentation (percent vs. decimal).
         """
+        # Try to collect quantstats metrics if available, but always
+        # compute the essential key stats from NAV/returns/excess returns
+        # so the UI works even when QuantStats is not installed (e.g., Streamlit Cloud).
         try:
             stats = self.calculate_stats(mode="basic")
         except Exception:
-            # If quantstats is unavailable or fails, continue with an empty
-            # stats frame and fall back to NAV-derived metrics.
             stats = pd.DataFrame()
 
         nav = self.nav.dropna()
         rets = self.returns.dropna()
 
-        if not nav.empty and not rets.empty:
-            n_days = (nav.index[-1] - nav.index[0]).days
-            if n_days > 0:
-                cagr = (nav.iloc[-1] / nav.iloc[0]) ** (252.0 / n_days) - 1.0
-            else:
-                cagr = float("nan")
-            ann_vol = rets.std() * (252 ** 0.5)
-        else:
-            cagr = float("nan")
-            ann_vol = float("nan")
-
-        metric_map = [
-            ("Start Period", "Start Period"),
-            ("End Period", "End Period"),
-            ("Sharpe", "Sharpe"),
-            ("Max drawdown", "Max Drawdown"),
-            ("Longest drawdown (days)", "Longest DD Days"),
-        ]
-
+        # Precompute core metrics from NAV/returns/excess returns
         rows = []
-        for label, idx in metric_map:
-            if idx in stats.index:
-                value = stats.loc[idx].iloc[0]
-                rows.append({"Metric": label, "Value": value})
 
-        # Calendar and rolling returns from NAV
+        # Start / End Period
+        if not nav.empty:
+            start_period = nav.index[0].date()
+            end_period = nav.index[-1].date()
+        else:
+            start_period = None
+            end_period = None
+
+        # Sharpe (annualized) computed from excess returns
+        er = self.excess_returns.dropna()
+        if not er.empty:
+            mean_ret = float(er.mean())
+            std_ret = float(er.std())
+            if std_ret and std_ret > 0:
+                sharpe = mean_ret / std_ret * np.sqrt(252.0)
+            else:
+                sharpe = float("nan")
+        else:
+            sharpe = float("nan")
+
+        # Drawdown metrics from excess-returns-derived NAV path
+        dd_series = self._drawdown_series_from_returns(
+            self.excess_returns).dropna()
+        if not dd_series.empty:
+            max_dd = float(dd_series.min())
+
+            # Longest consecutive drawdown in days
+            in_dd = dd_series < 0
+            longest = 0
+            current = 0
+            for flag in in_dd:
+                if flag:
+                    current += 1
+                    if current > longest:
+                        longest = current
+                else:
+                    current = 0
+            longest_dd_days = int(longest)
+        else:
+            max_dd = float("nan")
+            longest_dd_days = 0
+
+        rows.append({"Metric": "Start Period", "Value": start_period})
+        rows.append({"Metric": "End Period", "Value": end_period})
+        rows.append({"Metric": "Sharpe", "Value": float(sharpe)})
+        rows.append({"Metric": "Max drawdown", "Value": float(max_dd)})
+        rows.append({"Metric": "Longest drawdown (days)",
+                    "Value": longest_dd_days})
+
+        # Calendar and rolling returns from NAV (YTD, 3M, 6M, 1Y)
         if not nav.empty:
             last_date = nav.index[-1]
 
@@ -130,7 +158,18 @@ class PortfolioStats:
             if one_y is not None:
                 rows.append({"Metric": "1Y", "Value": float(one_y)})
 
-        # Append annualized metrics
+        # Compute CAGR and annualized volatility for supplemental stats
+        if not nav.empty and not rets.empty:
+            n_days = (nav.index[-1] - nav.index[0]).days
+            if n_days > 0:
+                cagr = (nav.iloc[-1] / nav.iloc[0]) ** (252.0 / n_days) - 1.0
+            else:
+                cagr = float("nan")
+            ann_vol = rets.std() * (252 ** 0.5)
+        else:
+            cagr = float("nan")
+            ann_vol = float("nan")
+
         if pd.notna(cagr):
             rows.append({"Metric": "Annualized Return (CAGR)",
                         "Value": float(cagr)})
