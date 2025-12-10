@@ -4,7 +4,7 @@ from backend.utils import get_valid_rebal_vec_dates, build_index_from_returns
 from pathlib import Path
 from backend.factors import FactorConstruction, FactorExposure
 from backend.structs import RebalPolicies, FactorAnalysisMode, Asset, Currency, ReturnMethod
-from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE
+from backend.config import BacktestConfig, FACTOR_LENS_UNIVERSE, DataConfig
 from backend.backtester import run_backtest
 from backend.risk import AssetRiskEngine
 from backend.data import YFinanceDataFetcher, UniverseLoader
@@ -68,8 +68,9 @@ if __name__ == "__main__":
 
     data_API = YFinanceDataFetcher()
     universe_loader = UniverseLoader(data_API)
+
     close, risk_free_rate = universe_loader.load_or_fetch_universe(
-        close_csv_path=Path('etf_close_prices.csv'),
+        close_csv_path=Path(DataConfig.etf_data_path),
         investment_universe=investment_universe_metadata,
         factor_universe=factor_universe_metadata,
         fx_universe=fx_universe_metadata,
@@ -80,7 +81,7 @@ if __name__ == "__main__":
 
     # for testing without RF
     # risk_free_rate = pd.Series(data=0.0, index=close.index)
-
+    # Build factor prices
     factor_engine = FactorConstruction(prices=close[factor_tickers],
                                        risk_free_rate=risk_free_rate,
                                        factor_definition=FACTOR_LENS_UNIVERSE)
@@ -114,7 +115,10 @@ if __name__ == "__main__":
         rebal_vec=rebal_vec,
     )
 
+    # REST IS FOR FILLING OUT THE UI
+
     # Tab 1:
+    # - Stats and backtest performance
     port_saa = PortfolioStats(
         backtest_result=saa, risk_free=risk_free_rate)
     perf_saa = port_saa.calculate_stats(mode='basic')
@@ -126,6 +130,7 @@ if __name__ == "__main__":
     )
 
     # Tab 2:
+    # - Calculating factor exposures
     print("Analyzing Factor Exposures...")
     exposure_engine = FactorExposure(
         risk_factors=factors_prices,
