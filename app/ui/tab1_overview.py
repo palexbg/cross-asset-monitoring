@@ -11,7 +11,7 @@ from backend.config import BacktestConfig
 from backend.universes import get_investment_universe
 
 from .analysis_context import build_analysis_context
-from .theme import AREA_HIGHLIGHT_COLOR
+from .theme import AREA_HIGHLIGHT_COLOR, HEATMAP_SCHEME_RED_YELLOW_GREEN
 
 
 def _build_portfolio_universe_table(
@@ -89,48 +89,29 @@ def _describe_risk_free_proxy(base_currency: str) -> str:
     asset = next((a for a in inv_universe if a.ticker == ticker), None)
     if asset is None:
         return f"Risk-free proxy: {ticker} (base currency {base_currency})."
-
-    return (
-        f"Risk-free proxy: {asset.ticker} – {asset.description} "
-        f"(currency {asset.currency})."
-    )
+    return f"Risk-free proxy: {asset.ticker} — {asset.description} (base currency {base_currency})."
 
 
-def _clamp_dates_to_index(start_date, end_date, index: pd.DatetimeIndex):
-    """Clamp the requested start/end dates to the closest available dates in index.
-
-    This avoids crashes when the user picks dates outside the data range.
+def _monthly_return_matrix(returns: pd.Series) -> pd.DataFrame:
     """
-    if index.empty:
-        return None, None
+    Convert daily returns to a Year x Month matrix of monthly returns.
 
-    idx = index.sort_values()
+    Returns a DataFrame indexed by year with columns as abbreviated month names.
+    """
+    if returns is None or returns.dropna().empty:
+        return pd.DataFrame()
 
-    # Clamp start: if before min, use first; if after max, also use last
-    if pd.to_datetime(start_date) <= idx[0]:
-        clamped_start = idx[0]
-    elif pd.to_datetime(start_date) >= idx[-1]:
-        clamped_start = idx[-1]
-    else:
-        # nearest date on or after requested start
-        pos = idx.get_indexer(
-            [pd.to_datetime(start_date)], method="nearest")[0]
-        clamped_start = idx[pos]
-
-    # Clamp end similarly
-    if pd.to_datetime(end_date) <= idx[0]:
-        clamped_end = idx[0]
-    elif pd.to_datetime(end_date) >= idx[-1]:
-        clamped_end = idx[-1]
-    else:
-        pos = idx.get_indexer([pd.to_datetime(end_date)], method="nearest")[0]
-        clamped_end = idx[pos]
-
-    # Ensure ordering
-    if clamped_start > clamped_end:
-        clamped_start, clamped_end = clamped_end, clamped_start
-
-    return clamped_start, clamped_end
+    r = returns.dropna().copy()
+    # Limit to business end-of-month aggregation
+    monthly = (1.0 + r).resample("M").prod() - 1.0
+    df = monthly.to_frame("ret")
+    df["year"] = df.index.year
+    df["month"] = df.index.month
+    mat = df.pivot(index="year", columns="month", values="ret").sort_index()
+    # Convert numeric month to abbreviated month name (Jan, Feb...)
+    mat.columns = [pd.Timestamp(2000, m, 1).strftime("%b")
+                   for m in mat.columns]
+    return mat
 
 
 def render_overview_tab(
@@ -196,36 +177,20 @@ def render_overview_tab(
     with top_left:
         st.subheader("Portfolio universe")
         if not universe_df.empty:
-            st.dataframe(
-                universe_df.set_index("Ticker"),
-                width="stretch",
-            )
+            # Show only top 2 rows for the portfolio universe to keep the
+            # panel compact; the Key stats panel below will take the
+            # remaining vertical space so the two stacked panels match the
+            # right column (NAV + Deviation) in total height.
+            uni_disp = universe_df.set_index("Ticker").head(2)
+            st.dataframe(uni_disp, width="stretch", height=120)
         else:
             st.caption("No instruments found for current portfolio.")
 
-    with top_right:
-        st.subheader("NAV")
-        nav = bt.nav.dropna()
-        nav_df = nav.reset_index()
-        nav_df.columns = ["date", "nav"]
-        nav_chart = (
-            alt.Chart(nav_df)
-            .mark_line()
-            .encode(
-                x=alt.X("date:T", axis=alt.Axis(format="%b %Y", title=None)),
-                y=alt.Y("nav:Q", title="NAV"),
-            )
-            .properties(height=250)
-        )
-        st.altair_chart(nav_chart, use_container_width=True)
-
-    # Second row: key stats and weight deviation
-    stats_col, weights_col = st.columns([1, 2])
-
-    with stats_col:
+        # Key stats (moved under Portfolio Universe). Render as a taller
+        # dataframe so it is not scrollable and visually matches the right
+        # column total height (NAV + Deviation = 500 px). We subtract the
+        # universe height above (120) to compute the stats height.
         st.subheader("Key stats")
-        # Format values for display: backend returns numeric values where
-        # appropriate and the UI is responsible for presentation formatting.
         stats_display = custom_stats.copy()
 
         def _format_value(row):
@@ -259,13 +224,14 @@ def render_overview_tab(
             if m in percent_metrics or "drawdown" in m.lower() or "return" in m.lower() or "volatility" in m.lower():
                 return f"{fv:.2%}"
 
-            # Default numeric formatting (e.g. Sharpe)
             return f"{fv:.2f}"
 
         if not stats_display.empty:
             stats_display["Value"] = stats_display.apply(_format_value, axis=1)
-        st.table(stats_display.set_index("Metric"))
-        # Describe the risk-free proxy and transaction costs used under the hood
+        # Combined desired column height = NAV (250) + Deviation (250) = 500
+        stats_height = 500 - 120
+        st.dataframe(stats_display.set_index("Metric"),
+                     width='stretch', height=stats_height)
         rf_text = _describe_risk_free_proxy(base_currency)
         cfg = BacktestConfig()
         tc_bps = cfg.cost_rate * 10_000.0
@@ -276,7 +242,23 @@ def render_overview_tab(
         st.caption(rf_text)
         st.caption(tc_text)
 
-    with weights_col:
+    with top_right:
+        st.subheader("NAV")
+        nav = bt.nav.dropna()
+        nav_df = nav.reset_index()
+        nav_df.columns = ["date", "nav"]
+        nav_chart = (
+            alt.Chart(nav_df)
+            .mark_line()
+            .encode(
+                x=alt.X("date:T", axis=alt.Axis(format="%b %Y", title=None)),
+                y=alt.Y("nav:Q", title="NAV"),
+            )
+            .properties(height=250)
+        )
+        st.altair_chart(nav_chart, width='stretch')
+
+        # Deviation from target weights (moved under NAV, same height as NAV)
         st.subheader("Deviation from target weights")
         # Compute deviation of realized weights vs target per asset.
         realized_w = bt.weights[list(weights.keys())]
@@ -333,30 +315,133 @@ def render_overview_tab(
                 )
                 .properties(height=250)
             )
-            st.altair_chart(dev_chart, use_container_width=True)
+            st.altair_chart(dev_chart, width='stretch')
         else:
             st.caption("No deviation data available.")
 
-    # Third row: monthly heatmap (left), transaction costs (middle), rolling vol (right)
-    # Give rolling volatility a bit more horizontal space so it doesn't look squished.
-    col_hm, col_tc, col_rv = st.columns([1, 1, 1.4])
+    # Note: deviation from target weights will be rendered under NAV
+    # (same column) so it has the same width/visual prominence as NAV.
 
-    with col_hm:
+    # Third row: split into two main columns. Left column shows monthly
+    # heatmap above transaction costs; right column stacks rolling volatility
+    # above historical drawdown. This gives the heatmap more horizontal space
+    # and groups related diagnostics together.
+    # Default heights to ensure variables exist even if branches early-exit
+    heatmap_height = 360
+    costs_height = 180
+    col_left, col_right = st.columns([1, 1])
+
+    # Left: Monthly heatmap (top) and Transaction costs (below)
+    with col_left:
         st.subheader("Monthly performance heatmap")
         try:
-            heatmap_fig = port_stats.plot_monthly_heatmap_fig()
-            st.pyplot(heatmap_fig, clear_figure=False)
+            r = port_stats.excess_returns.copy()
+            if hasattr(port_stats, "nav") and not port_stats.nav.empty:
+                r = r.loc[port_stats.nav.index.min(
+                ): port_stats.nav.index.max()]
+            mat = _monthly_return_matrix(r)
+
+            if mat.empty or mat.shape[0] < 1:
+                st.info("Not enough data to compute monthly returns.")
+            else:
+                # Compute symmetric vmin/vmax around zero so the diverging
+                # red/green palette is centered and intuitive.
+                try:
+                    vmin = float(min(mat.min().min(), 0.0))
+                    vmax = float(max(mat.max().max(), 0.0))
+                    max_abs = max(abs(vmin), abs(vmax))
+                    vmin, vmax = -max_abs, max_abs
+                except Exception:
+                    vmin, vmax = None, None
+
+                # Render as an Altair tile chart for consistent coloring,
+                # tooltips and sizing across environments.
+                try:
+                    # Prepare long-form dataframe for Altair
+                    df_long = mat.reset_index().melt(
+                        id_vars=mat.index.name or 'year',
+                        var_name='month',
+                        value_name='ret',
+                    )
+                    # Ensure consistent month ordering (Jan..Dec)
+                    month_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                    month_order = [m for m in month_order if m in mat.columns]
+
+                    # Year ordering: most recent first for easier scanning
+                    years = sorted(
+                        df_long[mat.index.name or 'year'].unique(), reverse=True)
+
+                    # Fallback vmin/vmax
+                    if vmin is None or vmax is None:
+                        vals = df_long['ret'].dropna().to_numpy()
+                        if vals.size:
+                            mabs = max(abs(vals.min()), abs(vals.max()))
+                            vmin, vmax = -mabs, mabs
+                        else:
+                            vmin, vmax = -1e-6, 1e-6
+
+                    # Rect tiles
+                    rect = (
+                        alt.Chart(df_long)
+                        .mark_rect()
+                        .encode(
+                            x=alt.X('month:N', sort=month_order, title=None),
+                            y=alt.Y(f"{mat.index.name or 'year'}:O",
+                                    sort=years, title=None),
+                            color=alt.Color(
+                                'ret:Q',
+                                scale=alt.Scale(
+                                    domain=[vmin, vmax], scheme=HEATMAP_SCHEME_RED_YELLOW_GREEN, clamp=True),
+                                legend=alt.Legend(format='.1%'),
+                            ),
+                            tooltip=[
+                                alt.Tooltip(
+                                    f"{mat.index.name or 'year'}:O", title='Year'),
+                                alt.Tooltip('month:N', title='Month'),
+                                alt.Tooltip(
+                                    'ret:Q', title='Return', format='.2%'),
+                            ],
+                        )
+                    )
+
+                    # Text overlay with 1 decimal percent formatting
+                    text = (
+                        alt.Chart(df_long)
+                        .mark_text(baseline='middle')
+                        .encode(
+                            x=alt.X('month:N', sort=month_order, title=None),
+                            y=alt.Y(f"{mat.index.name or 'year'}:O",
+                                    sort=years, title=None),
+                            text=alt.Text('ret:Q', format='.1%'),
+                            # Use a constant color for text to keep it legible;
+                            # could be enhanced with a conditional based on value.
+                            color=alt.value('black'),
+                        )
+                    )
+
+                    heatmap = (alt.layer(rect, text).properties(height=heatmap_height))
+
+                    st.altair_chart(heatmap, width='stretch')
+                except Exception:
+                    # If altair rendering fails, fall back to styled dataframe
+                    styled = mat.style.format("{:.1%}")
+                    styled = styled.background_gradient(
+                        axis=None, cmap="RdYlGn", vmin=vmin, vmax=vmax)
+                    st.dataframe(styled, width='stretch',
+                                 height=heatmap_height)
         except Exception as e:
             st.caption(
                 f"Could not render monthly performance heatmap (insufficient data or plotting error): {e}"
             )
 
-    with col_tc:
+        # Transaction costs beneath the heatmap
         st.subheader("Transaction costs over time")
         if hasattr(bt, "costs") and bt.costs is not None:
             costs = bt.costs.dropna()
             costs_df = costs.reset_index()
             costs_df.columns = ["date", "costs"]
+            costs_height = 180
             costs_chart = (
                 alt.Chart(costs_df)
                 .mark_line()
@@ -365,19 +450,21 @@ def render_overview_tab(
                         format="%b %Y", title=None)),
                     y=alt.Y("costs:Q", title="Costs"),
                 )
-                .properties(height=320)
+                .properties(height=costs_height)
             )
-            st.altair_chart(costs_chart, use_container_width=True)
+            st.altair_chart(costs_chart, width='stretch')
         else:
             st.caption("No costs series found in backtest result.")
 
-    with col_rv:
+    # Right: Rolling volatility (top) and historical drawdown (below)
+    with col_right:
         st.subheader("Rolling 6M volatility")
         rv_series = port_stats.get_rolling_vol_series(window=126)
         rv_series = rv_series.dropna()
         if not rv_series.empty:
             rv_df = rv_series.reset_index()
             rv_df.columns = ["date", "vol"]
+            # Align rolling vol height with the heatmap for visual alignment
             rv_chart = (
                 alt.Chart(rv_df)
                 .mark_line()
@@ -386,32 +473,37 @@ def render_overview_tab(
                         format="%b %Y", title=None)),
                     y=alt.Y("vol:Q", title="Annualized Vol"),
                 )
-                .properties(height=320)
+                .properties(height=heatmap_height)
             )
-            st.altair_chart(rv_chart, use_container_width=True)
+            st.altair_chart(rv_chart, width='stretch')
         else:
             st.caption("Not enough data to compute rolling volatility.")
 
-    # Fourth row: historical drawdown
-    st.subheader("Historical drawdown")
-    dd_series = port_stats.get_drawdown_series()
-    dd_series = dd_series.dropna()
-    if not dd_series.empty:
-        dd_df = dd_series.reset_index()
-        dd_df.columns = ["date", "drawdown"]
-        dd_chart = (
-            alt.Chart(dd_df)
-            .mark_area(color=AREA_HIGHLIGHT_COLOR, opacity=0.4)
-            .encode(
-                x=alt.X("date:T", axis=alt.Axis(format="%b %Y", title=None)),
-                y=alt.Y("drawdown:Q", title="Drawdown"),
-                tooltip=[
-                    alt.Tooltip("date:T", title="Date"),
-                    alt.Tooltip("drawdown:Q", title="Drawdown", format=".1%"),
-                ],
+        # Historical drawdown (squeezed below rolling vol)
+        st.subheader("Historical drawdown")
+        dd_series = port_stats.get_drawdown_series()
+        dd_series = dd_series.dropna()
+        if not dd_series.empty:
+            dd_df = dd_series.reset_index()
+            dd_df.columns = ["date", "drawdown"]
+            # Make drawdown visually aligned with transaction costs
+            dd_chart = (
+                alt.Chart(dd_df)
+                .mark_area(color=AREA_HIGHLIGHT_COLOR, opacity=0.4)
+                .encode(
+                    x=alt.X("date:T", axis=alt.Axis(
+                        format="%b %Y", title=None)),
+                    y=alt.Y("drawdown:Q", title="Drawdown"),
+                    tooltip=[
+                        alt.Tooltip("date:T", title="Date"),
+                        alt.Tooltip("drawdown:Q", title="Drawdown",
+                                    format=".1%"),
+                    ],
+                )
+                .properties(height=costs_height)
             )
-            .properties(height=260)
-        )
-        st.altair_chart(dd_chart, use_container_width=True)
-    else:
-        st.caption("Not enough data to compute drawdowns.")
+            st.altair_chart(dd_chart, width='stretch')
+        else:
+            st.caption("Not enough data to compute drawdowns.")
+
+    # (Duplicate drawdown section removed; drawdown is shown above in the right column)

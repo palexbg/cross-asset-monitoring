@@ -231,7 +231,7 @@ def render_factor_tab(
                 .properties(height=420)
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width='stretch')
 
     # Rolling factor betas over time (reusing integration script parameters)
     exposure_roll = FactorExposure(
@@ -308,7 +308,7 @@ def render_factor_tab(
             .properties(height=420)
         )
 
-        st.altair_chart(line_chart, use_container_width=True)
+        st.altair_chart(line_chart, width='stretch')
 
     # Factor price series (left) and correlation heatmap (right)
     try:
@@ -375,7 +375,7 @@ def render_factor_tab(
                 .properties(height=360)
             )
 
-            st.altair_chart(price_chart, use_container_width=True)
+            st.altair_chart(price_chart, width='stretch')
 
         f_ret = get_returns(
             factors_window,
@@ -423,6 +423,6 @@ def render_factor_tab(
                     .properties(height=360)
                 )
 
-                st.altair_chart(corr_chart, use_container_width=True)
+                st.altair_chart(corr_chart, width='stretch')
     except Exception as e:
         st.caption(f"Could not compute factor correlation matrix: {e}")

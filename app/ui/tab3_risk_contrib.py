@@ -280,7 +280,7 @@ def render_risk_contrib_tab(
                         .properties(height=360)
                     )
 
-                    st.altair_chart(heatmap, use_container_width=True)
+                    st.altair_chart(heatmap, width='stretch')
             else:
                 st.caption(
                     "Not enough data to compute a rolling factor contribution trend."
@@ -355,8 +355,7 @@ def render_risk_contrib_tab(
                 )
             )
 
-            st.altair_chart(pie.properties(height=320),
-                            use_container_width=True)
+            st.altair_chart(pie.properties(height=320), width='stretch')
 
             latest_vol = asset_risk.get("latest_port_vol")
             if latest_vol is not None:
@@ -411,8 +410,7 @@ def render_risk_contrib_tab(
                 )
             )
 
-            st.altair_chart(
-                pie_ac.properties(height=320), use_container_width=True)
+            st.altair_chart(pie_ac.properties(height=320), width='stretch')
 
     factor_risk = ctx["factor_risk"]
 
@@ -459,8 +457,7 @@ def render_risk_contrib_tab(
                     )
                 )
 
-                st.altair_chart(
-                    pie_f.properties(height=320), use_container_width=True)
+                st.altair_chart(pie_f.properties(height=320), width='stretch')
 
             sys_vol = factor_risk.get("latest_systematic_vol")
             idio_vol = factor_risk.get("latest_idio_vol")

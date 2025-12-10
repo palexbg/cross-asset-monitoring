@@ -170,15 +170,15 @@ class PortfolioStats:
         fig = fig.get_figure()
 
         return fig
-	
+
     def _drawdown_series_from_returns(self, excess_returns: pd.Series) -> pd.Series:
-	    # Convert returns to a pseudo-price/NAV path
-	    nav = (1.0 + excess_returns.fillna(0.0)).cumprod()
-	    peak = nav.cummax()
-	    dd = nav / peak - 1.0
-	    dd.name = "drawdown"
-	    return dd
-	    
+        # Convert returns to a pseudo-price/NAV path
+        nav = (1.0 + excess_returns.fillna(0.0)).cumprod()
+        peak = nav.cummax()
+        dd = nav / peak - 1.0
+        dd.name = "drawdown"
+        return dd
+
     def get_drawdown_series(self) -> pd.Series:
         """Return drawdown series for use in Streamlit charts.
 
