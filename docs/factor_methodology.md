@@ -1,4 +1,4 @@
-# Methodology — Cross-Asset Factor Lens (Local Prototype)
+# Methodology — Cross-Asset Factor Lens
 
 This dashboard implements an **educational demonstration** of a compact, transparent cross-asset “factor lens” workflow using investable ETF proxies and a small parent–child factor hierarchy. The design is motivated by the following public reference on incorporating historical portfolio and factor analysis into monitoring workflows, adapted from 
 [Incorporating Historical Portfolio Analysis into your Workflows](https://www.venn.twosigma.com/resources/incorporating-historical-portfolio-analysis-into-your-workflows)
