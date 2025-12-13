@@ -3,6 +3,29 @@
 from dataclasses import dataclass
 from .structs import FactorDef, ReturnMethod, CovarianceMethod, ComputeOn
 
+# --------------------------------
+# OpenAI Config
+# ----------------------------------
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    """Configuration for the OpenAI Agent (Ned)."""
+    model_name: str = "gpt-4o-mini"
+    # Determinism Settings
+    temperature: float = 0.0         # 0.0 = Maximum consistency
+    top_p: float = 1.0               # Standard pairing with Temp 0
+
+    # Constraints
+    max_tokens: int = 500
+
+    # Penalties - 0 for technical definitions
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+
+    # Timeout (Streamlit UX safety)
+    timeout_seconds: int = 15
+
 # ----------------------------------
 # ASSET RISK CONFIGURATION
 # ----------------------------------
