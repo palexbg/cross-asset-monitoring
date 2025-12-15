@@ -325,7 +325,7 @@ A bar chart showing regression betas to the factor return series used in this da
     "Plot: Risk Contribution": """
 **Tab 3 (Risk)**
 A Pie/Bar chart breaking down total volatility.
-* **Interpretation:** The 'Guilty Party' chart. If 'Equity' is the largest slice, your portfolio is driven by the stock market, regardless of your bond holdings.
+* **Interpretation:** Shows which asset brings the highest risk to the portfolio. If 'Equity' is the largest slice, your portfolio is driven by the stock market, regardless of your bond holdings.
 """,
 
     "Plot: Rolling Volatility": """
