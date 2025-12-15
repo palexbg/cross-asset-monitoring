@@ -46,7 +46,17 @@ The orthogonalization order forms a dependency tree:
 
 This structure ensures that 'Momentum' represents pure price action, stripped of all macro and credit beta.
 """,
+    "How to Read the Dashboard": """
+A recommended interpretation flow:
 
+1. **Factor Exposures** – What risks am I exposed to?
+2. **Risk Contribution** – Which risks actually dominate volatility?
+3. **Systematic vs Idiosyncratic Risk** – How much is explained by this lens?
+4. **Return Attribution** – What tended to help or hurt historically?
+
+This order mirrors how institutional allocators typically reason about
+total portfolio risk before performance.
+""",
     "Risk Factor Orthogonalization": """
 We use a **Hierarchical Regression** approach to handle multicollinearity.
 A central methodological choice is **parent–child residualization**.
@@ -97,7 +107,7 @@ The resulting daily series is used consistently in factor construction, exposure
     "Annualization and Performance Metrics": """
 Performance statistics follow standard daily-to-annual conversions:
 
-* **Volatility:** std of daily simple returns × $\sqrt{252}$.
+* **Historical Volatility:** std of realized daily simple returns × $\sqrt{252}$.
 * **Sharpe ratio:** mean of daily excess returns / std × $\sqrt{252}$.
 * **CAGR:** Geometric mean of the NAV path.
 
@@ -154,13 +164,52 @@ The decay parameter is derived from these spans inside the EWMA kernel
 (not hard-coded), so “faster” or “slower” memory is controlled by the
 span fields in `AssetRiskConfig`, `FactorRiskConfig` and `FactorConfig`.
 """,
+    "How to Interpret the Factor Lens": """
+The factor lens is a **measurement framework**, not a statement of economic truth.
+
+All exposures, risk contributions, and residuals are defined **relative to the chosen factor set, proxy instruments, and orthogonalization order**.
+
+Key implications:
+- A factor exposure answers: *“What combination of these factors best explains the observed returns?”*
+- It does **not** imply causality or permanence.
+- Residual (idiosyncratic) risk is simply what this lens cannot explain — it is **not automatically alpha**.
+
+Changing the factor universe, proxy ETFs, or residualization order would change the results.
+""",
+    "Orthogonalization Order and Economic Meaning": """
+Orthogonalization is a **design choice**, not a discovery.
+
+In this system, factors are residualized in a parent–child hierarchy to align with
+economic intuition (e.g., Credit depends on Equity and Rates).
+
+This implies:
+- Child factors represent **incremental risk beyond their parents**
+- Later factors (e.g., Momentum) are increasingly “pure” but also more model-dependent
+- Reordering the hierarchy would change factor meanings and betas
+
+There is no single correct order — this hierarchy reflects a transparent,
+interpretable compromise rather than a universal truth.
+""",
+
+    "What We Mean by Risk": """
+Throughout the dashboard, “risk” refers to **modeled volatility**, not total uncertainty.
+
+Specifically:
+- Risk is estimated using historical returns and EWMA covariance models
+- Tail events, regime shifts, and non-linear losses are not fully captured
+- Risk estimates are conditional on the chosen lookback window and decay parameters
+
+The risk lens is most useful for **relative comparisons**, scenario reasoning,
+and understanding diversification — not for predicting extreme outcomes.
+""",
+
 
     "Risk Decomposition (MCTR)": """
 We calculate Marginal Contribution to Risk (MCTR) using **Euler Decomposition**.
-This ensures that the sum of (Asset Weight × Marginal Contribution) adds up to exactly 100% of the Portfolio Volatility.
+This ensures that the sum of (Asset Weight × Marginal Contribution) adds up to exactly 100% of the (modeled or historically calculated) portfolio volatility.
 """,
 
-    "Factor Volatility Scaling": """
+    "Factor Construction Volatility Scaling": """
 After orthogonalization, residual factors are scaled to target {target_vol_pct}
 annualized volatility. This normalizes the 'Factor Lens' so that a Beta of 1.0
 implies a broadly comparable risk contribution, regardless of whether it is
@@ -173,6 +222,18 @@ Factor-based return attribution decomposes portfolio returns into contributions 
 $Residual_t = PortfolioExcess_t - \sum (Beta_f \times FactorReturn_f)$
 
 This output powers the "What drove performance?" heatmap.
+
+**Important interpretation note**
+
+Return attribution is inherently noisier than risk attribution.
+Small changes in estimated betas or factor returns can materially
+change attributed performance over short horizons.
+
+As a result:
+- Risk contributions are generally more stable than return contributions
+- Return attribution should be interpreted qualitatively, not precisely
+- The residual return captures both skill and uncompensated noise
+
 """,
 
     "Rebalancing Logic": """
@@ -247,8 +308,7 @@ The factor risk model decomposes portfolio volatility into two pieces:
    FactorExposure engine. These are sensitivities to the
    orthogonalized factor indices (Equity, Rates, Credit, etc.).
 2. We build an EWMA covariance tensor of factor daily simple
-   returns using FactorRiskConfig (span ≈ asset/factor span,
-   no annualization in the tensor).
+   returns using {factor_span} days to for an EWMA vol estimator.
 3. For each evaluation date t, we compute systematic variance as
 
        sys_var_t = B_t' Σ_t B_t
