@@ -20,6 +20,7 @@ dependencies = [
   "numba>=0.56",
   "statsmodels>=0.14",
   "openai>=2.11.0",
+  "tabulate>=0.9.0",
 ]
 
 [project.optional-dependencies]
