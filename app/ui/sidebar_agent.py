@@ -9,7 +9,7 @@ def render_ai_analyst_sidebar(context=None):
         context = {}
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🤖 Ask the (AI Analyst)")
+    st.sidebar.subheader("🤖 Ask the AI Analyst")
 
     # Check for API Key
     api_key = st.secrets.get("OPENAI_API_KEY") or st.sidebar.text_input(
