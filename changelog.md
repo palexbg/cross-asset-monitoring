@@ -2,6 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
+## [v0.1.0] - 2025-12-15
+Add LLM-powered sidebar assistant for interactive Q&A on portfolio risk and return.
+
 ## [v0.1.0] - 2025-12-10
 Initial snapshot and UI/backend hardening.
 

@@ -19,6 +19,7 @@ dependencies = [
   "streamlit>=1.20",
   "numba>=0.56",
   "statsmodels>=0.14",
+  "openai>=2.11.0",
 ]
 
 [project.optional-dependencies]
