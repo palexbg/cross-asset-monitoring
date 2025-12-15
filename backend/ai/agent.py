@@ -70,7 +70,7 @@ class PortfolioAgent:
                 {"role": "user", "content": instruction},
             ],
             temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens//2,
+            max_tokens=self.config.max_tokens,
             top_p=self.config.top_p,
             frequency_penalty=self.config.frequency_penalty,
             presence_penalty=self.config.presence_penalty,
@@ -138,7 +138,7 @@ class PortfolioAgent:
             - **Identity**: If asked "Who are you?", reply: "I am your AI Quantitative Analyst, here to help you understand your portfolio's risks and drivers."
             - **Typos**: Users make typos (e.g., "riks" instead of "risks"). Interpret their intent helpfully. Do not refuse based on spelling.
             - **Refusal**: ONLY refuse if the question is completely unrelated to finance (e.g., "Write a poem", "Python code", "Cooking recipes"). 
-              - Refusal phrase: "I specialize in financial analysis. Please ask me about the portfolio, risk factors, or methodology."
+              - Refusal phrase: "I specialize in financial analysis. Please ask me about the portfolio, risk factors, specific quantitative finance methodology, or general finance knowledge."
             
             Methodology Rules:
             

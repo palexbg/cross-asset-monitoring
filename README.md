@@ -1,4 +1,8 @@
+
 # Cross-Asset Monitoring Dashboard
+
+![Dashboard Preview](assets/screenshot-tab2.png)
+
 
 A compact Streamlit dashboard for monitoring a multi-asset portfolio
 through performance, factor exposures, and risk contributions.
@@ -11,9 +15,11 @@ This project was built to demonstrate a practical, transparent
 cross-asset monitoring workflow with a compact orthogonalized risk factors hierarchy,
 exposure estimation, and factor-based risk decomposition.
 
-A main motivating reference for the workflow design is this Venn article on
+A main motivating reference for the workflow design is this article on
 integrating historical portfolio and factor analysis into monitoring practices:
 [Incorporating Historical Portfolio Analysis into your Workflows](https://www.venn.twosigma.com/resources/incorporating-historical-portfolio-analysis-into-your-workflows)
+
+
 
 ---
 
@@ -24,6 +30,7 @@ integrating historical portfolio and factor analysis into monitoring practices:
 - View latest and rolling factor betas.
 - Decompose portfolio risk and return into asset- and factor-level contributions.
 - Review the methodology directly inside the app.
+- Chat with an AI agent to explain the methodology behind and definitions.
 
 ---
 
@@ -166,6 +173,12 @@ pytest -q
 
 streamlit run main.py
 ```
+
+To enable the AI analyst, create a `.streamlit/secrets.toml` file with the following entry inside:
+
+```OPENAI_API_KEY = "sk-..."```
+
+
 ---
 ## Disclaimer
 
