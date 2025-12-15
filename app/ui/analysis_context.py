@@ -1,3 +1,4 @@
+"""This is an orchestrator for building the analysis context shared across UI tabs."""
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +33,7 @@ from backend.backtester import run_backtest
 
 
 def _resolve_rebal_policy(name: str) -> RebalPolicies:
+    """An exception to handle the special mapping we have for the rebalancing policies and the buy&hold portfolio"""
     mapping = {
         "US Month Start": RebalPolicies.US_MONTH_START,
         "US Month End": RebalPolicies.US_MONTH_END,
@@ -52,7 +54,8 @@ def build_analysis_context(
         w_equity: float,
     portfolio_name: str,
 ):
-    """Build and cache all analysis objects shared across tabs.
+    """
+    Build and cache all analysis objects shared across tabs.
 
     This orchestrates the existing backend components without adding
     new engine logic. It is intentionally kept in the UI layer.

@@ -5,9 +5,8 @@ import numpy as np
 
 from backend.perfstats import PortfolioStats
 from backend.structs import FactorAnalysisMode
-from backend.config import BacktestConfig
+from backend.config import BacktestConfig, AssetRiskConfig
 from backend.factors import FactorExposure
-from backend.risk import AssetRiskEngine, FactorRiskEngine
 
 from backend.universes import get_investment_universe
 
@@ -107,8 +106,6 @@ def render_risk_contrib_tab(
 
     bt = ctx["bt"]
     rf = ctx["rf"]
-    rebal_vec = ctx["rebal_vec"]
-    pf_prices = ctx["pf_prices"]
     factors_prices = ctx.get("factors_prices")
 
     port_stats = PortfolioStats(backtest_result=bt, risk_free=rf)
@@ -315,17 +312,17 @@ def render_risk_contrib_tab(
 
     # Brief clarification of the CTR% metric used in the pies.
     st.caption(
-        "Here, ctr_pct denotes each bucket's contribution to portfolio volatility "
-        "(not variance), computed from the latest covariance estimate using "
-        "weights as of the latest (or latest trade) date."
+        "**Snapshot Risk Analysis:** These charts show the decomposition of the portfolio's "
+        f"*current* estimated volatility (asset-risk and factor-risk decompositions) based on the latest positions and market conditions (EWMA - using {AssetRiskConfig.span} days). "
+        "This can differ from the long-term historical realized volatility shown in the overview tab."
     )
 
     col_asset, col_aclass, col_factor = st.columns(3)
 
     with col_asset:
-        st.markdown("**By asset**")
+        st.markdown("**By asset (holdings)**")
         if latest_rc is None or latest_rc.empty:
-            st.caption("No asset risk contribution data available.")
+            st.caption("No asset (holdings) risk contribution data available.")
         else:
             rc = latest_rc["ctr_pct"].dropna()
             rc_df = rc.rename("ctr_pct").reset_index()
@@ -359,13 +356,13 @@ def render_risk_contrib_tab(
 
             latest_vol = asset_risk.get("latest_port_vol")
             if latest_vol is not None:
-                st.caption(
-                    f"Total portfolio volatility (annualized): {latest_vol:.2%}"
-                )
+                st.markdown(
+                    f"**Current Estimated Volatility (Annualized): {latest_vol:.2%}**")
+                st.caption("Based on EWMA covariance of recent returns.")
 
     # Aggregate CTR_% by asset class as defined in the investment universe
     with col_aclass:
-        st.markdown("**By asset class**")
+        st.markdown("**By asset class (holdings)**")
         if latest_rc is None or latest_rc.empty:
             st.caption("No asset-class risk contribution data available.")
         else:
@@ -462,6 +459,5 @@ def render_risk_contrib_tab(
             sys_vol = factor_risk.get("latest_systematic_vol")
             idio_vol = factor_risk.get("latest_idio_vol")
             if sys_vol is not None and idio_vol is not None:
-                st.caption(
-                    f"Systematic volatility: {sys_vol:.2%} | Idiosyncratic volatility: {idio_vol:.2%}"
-                )
+                st.markdown(
+                    f"**Decomposition:** Systematic {sys_vol:.2%} | Idiosyncratic {idio_vol:.2%}")
