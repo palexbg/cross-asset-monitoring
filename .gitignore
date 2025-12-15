@@ -13,3 +13,4 @@ Dockerfile
 backend/ai/__pycache__
 .streamlit/secrets.toml
 archive/
+.devcontainer/
