@@ -18,8 +18,7 @@ STATIC_DEFINITIONS = {
     "Goal of the Cross-asset monitoring tool with a cross-asset factor-based lens": """
 This dashboard implements an **educational demonstration** of a compact, transparent cross-asset "factor-based lens" workflow using investable ETF proxies and a small parent–child factor hierarchy.
 
-The design draws inspiration from industry research on total portfolio 
-factor analysis (e.g., publicly available e.g. [here](https://www.venn.twosigma.com/resources/incorporating-historical-portfolio-analysis-into-your-workflows)).
+The design draws inspiration from industry research on cross-asset factor-based risk analysis (e.g., publicly available e.g. [here](https://www.venn.twosigma.com/resources/incorporating-historical-portfolio-analysis-into-your-workflows)).
 
 The objective is to provide an interpretable monitoring layer that connects:
 1) portfolio performance and allocation drift,
@@ -55,7 +54,7 @@ A recommended interpretation flow:
 4. **Return Attribution** – What tended to help or hurt historically?
 
 This order mirrors how institutional allocators typically reason about
-total portfolio risk before performance.
+portfolio risk before performance.
 """,
     "Risk Factor Orthogonalization": """
 We use a **Hierarchical Regression** approach to handle multicollinearity.
