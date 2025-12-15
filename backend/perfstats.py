@@ -171,10 +171,10 @@ class PortfolioStats:
             ann_vol = float("nan")
 
         if pd.notna(cagr):
-            rows.append({"Metric": "Annualized Return (CAGR)",
+            rows.append({"Metric": "Annualized Return)",
                         "Value": float(cagr)})
         if pd.notna(ann_vol):
-            rows.append({"Metric": "Annualized Volatility",
+            rows.append({"Metric": "Annualized Historical Volatility",
                         "Value": float(ann_vol)})
 
         if rows:

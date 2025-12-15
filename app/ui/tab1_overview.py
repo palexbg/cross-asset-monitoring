@@ -103,7 +103,7 @@ def _monthly_return_matrix(returns: pd.Series) -> pd.DataFrame:
 
     r = returns.dropna().copy()
     # Limit to business end-of-month aggregation
-    monthly = (1.0 + r).resample("M").prod() - 1.0
+    monthly = (1.0 + r).resample("ME").prod() - 1.0
     df = monthly.to_frame("ret")
     df["year"] = df.index.year
     df["month"] = df.index.month
@@ -124,7 +124,7 @@ def render_overview_tab(
 ):
     st.title(f"Portfolio Overview – {portfolio_name}")
 
-    # Top disclaimer (clearly visible)
+    # disclaimer
     st.markdown("---")
     st.info(
         "**Disclaimer:** For educational & demonstrational purposes only. "
@@ -164,7 +164,6 @@ def render_overview_tab(
     bt = ctx["bt"]
     rf = ctx["rf"]
     rebal_vec = ctx["rebal_vec"]
-    pf_prices = ctx["pf_prices"]
 
     port_stats = PortfolioStats(backtest_result=bt, risk_free=rf)
     universe_df = _build_portfolio_universe_table(weights, bt.weights)

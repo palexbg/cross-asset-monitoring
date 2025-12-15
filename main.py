@@ -1,12 +1,17 @@
 from backend.config import DataConfig
-from pathlib import Path
-import streamlit as st
-import pandas as pd
 
 from app.ui.tab1_overview import render_overview_tab
 from app.ui.tab2_factors import render_factor_tab
 from app.ui.tab3_risk_contrib import render_risk_contrib_tab
 from app.ui.tab4_methodology import render_methodology_tab
+from app.ui.analysis_context import build_analysis_context
+from app.ui.sidebar_agent import render_ai_analyst_sidebar, prepare_context_agent
+
+from pathlib import Path
+
+import streamlit as st
+import pandas as pd
+
 
 # -----------------------
 # Page config
@@ -21,9 +26,8 @@ st.set_page_config(
 # Sidebar controls (Tab 1 scope)
 # -----------------------
 st.sidebar.header("Controls")
-
-# Data source notice under the Controls section
-st.sidebar.write("Data source: Yahoo Finance")
+# Compact data source notice
+st.sidebar.caption("Data source: Yahoo Finance")
 
 base_currency = st.sidebar.selectbox(
     "Portfolio currency",
@@ -31,48 +35,27 @@ base_currency = st.sidebar.selectbox(
     index=0
 )
 
-# Date inputs: use two explicit controls (start / end) rather than a range
-# picker which showed a non-working dropdown in some browsers.
+# Date inputs: use two explicit controls (start / end)
 default_start = pd.Timestamp("2018-01-01").date()
-
-# To ensure all factors have sufficient history (many start in mid-2022),
-# require the end date to be on or after `min_end_for_all_factors` and
-# show a small tooltip explaining this.
 min_end_for_all_factors = pd.Timestamp("2022-06-01").date()
-
-# Derive a sensible default end-date. Prefer the latest date available in the
-# local cached CSV (if present) so the demo uses the freshest available data;
-# otherwise fall back to today's date. Always ensure the default is at least
-# `min_end_for_all_factors` so the UI doesn't present an obviously unusable
-# default.
 
 
 def _latest_date_from_csv(path: str):
     p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        df = pd.read_csv(p, parse_dates=["Date"]).set_index("Date")
-        if df.index.size:
-            return df.index.max().date()
-    except Exception:
-        # If anything goes wrong reading the cache, ignore and fallback
-        return None
+    df = pd.read_csv(p, parse_dates=["Date"]).set_index("Date")
+    return df.index.max().date()
 
 
 csv_latest = _latest_date_from_csv(DataConfig.etf_data_path)
 end_date_default = csv_latest or pd.Timestamp.today().date()
-# Ensure default is not earlier than the minimum required end date
 if end_date_default < min_end_for_all_factors:
     end_date_default = min_end_for_all_factors
 
-# Start date first (UI preference)
 start_date = st.sidebar.date_input(
     "Start date",
     value=default_start,
 )
 
-# End date; enforce a minimum end date so factor histories are available.
 end_date = st.sidebar.date_input(
     "End date",
     value=end_date_default,
@@ -84,32 +67,29 @@ end_date = st.sidebar.date_input(
     ),
 )
 
-# Require at least 3.5 years (~1278 days) of history between start and end
-# so that factor exposure series (rolling regressions, lookbacks) are stable.
 min_history_days = int(3.5 * 365)
 min_allowed_start = (pd.Timestamp(end_date) -
                      pd.Timedelta(days=min_history_days)).date()
 
-# If the selected start is too recent relative to end, auto-adjust (with override)
 if start_date > min_allowed_start:
     st.sidebar.warning(
-        f"Start date adjusted to {min_allowed_start} to ensure at least 3.5 years "
-        f"of history for factor exposure calculations (you selected {start_date})."
+        f"Start date adjusted to {min_allowed_start} to ensure ~3.5y history."
     )
     override = st.sidebar.checkbox(
-        "Override and use selected start date (may produce incomplete factor exposures)",
+        "Override start date (may break factors)",
         value=False,
     )
     if not override:
         start_date = min_allowed_start
 
-# Explain why the end date is restricted and why the start must be earlier
-st.sidebar.caption(
-    "Note: the end-date restriction exists because Yahoo Finance does not "
-    "provide sufficiently long histories for several factor ETFs (many "
-    "start in mid-2022). We also require at least 3.5 years between start "
-    "and end to produce stable factor exposure series."
-)
+# COMPACT UI: Move the long text into a collapsed expander to save space
+with st.sidebar.expander("ℹ️ Date Constraints Info"):
+    st.caption(
+        "Note: The end-date restriction exists because Yahoo Finance does not "
+        "provide sufficiently long histories for several factor ETFs (many "
+        "start in mid-2022). We also require at least 3.5 years between start "
+        "and end to produce stable factor exposure series."
+    )
 
 portfolio_preset = st.sidebar.selectbox(
     "Portfolio preset",
@@ -118,9 +98,6 @@ portfolio_preset = st.sidebar.selectbox(
 )
 
 if portfolio_preset == "60/40 Buy&Hold":
-    # Buy&Hold invests once at inception, so the calendar schedule
-    # is irrelevant. Show a greyed-out note instead of an active
-    # control.
     rebal_policy_name = "One-time only at beginning"
     st.sidebar.caption(
         "Rebalance schedule: One-time only at beginning for 60/40 Buy&Hold.")
@@ -135,6 +112,35 @@ if portfolio_preset in ["60/40 Monthly Rebal", "60/40 Buy&Hold"]:
     w_equity = 0.60
 else:
     w_equity = st.sidebar.slider("Equity weight (SPY)", 0.0, 1.0, 0.60, 0.05)
+
+
+# Run the orchestrator analysis script to build all shared context
+with st.spinner("Analyzing Portfolio..."):
+    pf_analytics = build_analysis_context(
+        base_currency=base_currency,
+        start_date=start_date,
+        end_date=end_date,
+        rebal_policy_name=rebal_policy_name,
+        w_equity=w_equity,
+        portfolio_name=portfolio_preset,
+    )
+
+# ---------------------------------------------------------------------
+# Create Context for the Agent
+# ---------------------------------------------------------------------
+agent_context = prepare_context_agent(
+    pf_analytics=pf_analytics,
+    base_currency=base_currency,
+    portfolio_preset=portfolio_preset,
+    start_date=start_date,
+    end_date=end_date,
+)
+
+# -----------------------
+# RENDER AI ANALYST SIDEBAR
+# -----------------------
+render_ai_analyst_sidebar(agent_context)
+
 
 # -----------------------
 # Tabs

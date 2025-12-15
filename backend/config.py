@@ -17,7 +17,7 @@ class LLMConfig:
     top_p: float = 1.0               # Standard pairing with Temp 0
 
     # Constraints
-    max_tokens: int = 500
+    max_tokens: int = 600
 
     # Penalties - 0 for technical definitions
     frequency_penalty: float = 0.0
@@ -90,7 +90,6 @@ class FactorConfig:
     """Configuration for factor lens construction and scaling behaviour."""
     smoothing_window: int = 5  # days
     lookback_window: int = 120  # days
-    smoothing_window: int = 5  # days
     cov_span: int = 750  # days
     target_yearly_vol: float = 0.15  # 15% annualized volatility
     scale_factors: bool = True

@@ -5,7 +5,6 @@ import textwrap
 import inspect
 
 import backend.config as cfg
-import backend.structs as structs
 from backend.universes import (
     get_investment_universe,
     get_factor_universe,
@@ -16,10 +15,11 @@ from backend.universes import (
 # STATIC DEFINITIONS of methodology
 # =========================================================================
 STATIC_DEFINITIONS = {
-    "Goal of the Cross-asset monitoring tool with a Factor lens": """
-This dashboard implements an **educational demonstration** of a compact, transparent cross-asset "factor lens" workflow using investable ETF proxies and a small parent–child factor hierarchy.
+    "Goal of the Cross-asset monitoring tool with a cross-asset factor-based lens": """
+This dashboard implements an **educational demonstration** of a compact, transparent cross-asset "factor-based lens" workflow using investable ETF proxies and a small parent–child factor hierarchy.
 
-The design is motivated by the Two Sigma whitepaper: "Incorporating Historical Portfolio Analysis into your Workflows".
+The design draws inspiration from industry research on total portfolio 
+factor analysis (e.g., publicly available e.g. [here](https://www.venn.twosigma.com/resources/incorporating-historical-portfolio-analysis-into-your-workflows)).
 
 The objective is to provide an interpretable monitoring layer that connects:
 1) portfolio performance and allocation drift,
@@ -70,6 +70,25 @@ Rather than treating factor proxies as independent, several "child" factors are 
 
 This ensures that the Credit factor captures pure credit risk and not just repackaged equity beta.
 """,
+
+    "Asset Risk vs. Factor Risk": """
+These are two different ways of slicing the **same** Total Risk pie.
+
+1. **Asset Risk (Holdings View):**
+   - Answers: *"Which ticker is causing my volatility?"*
+   - Example: "SPY contributes 12% to volatility."
+   - Note: Since SPY is driven by the market, most "Asset Risk" is actually "Systematic."
+
+2. **Factor Risk (Systematic View):**
+   - Answers: *"Which economic driver is causing my volatility?"*
+   - Example: "Equity Factor contributes 12% to volatility."
+
+**Common Pitfall:**
+Do not confuse **Asset Risk** with **Idiosyncratic Risk**.
+- **Asset Risk** = Systematic part of asset + Idiosyncratic part of asset.
+- **Idiosyncratic Risk** = Only the unexplained residual noise.
+""",
+
 
     "Return Conventions": """
 The backend distinguishes between simple and log returns through a ReturnMethod enum:
@@ -164,8 +183,8 @@ The decay parameter is derived from these spans inside the EWMA kernel
 (not hard-coded), so “faster” or “slower” memory is controlled by the
 span fields in `AssetRiskConfig`, `FactorRiskConfig` and `FactorConfig`.
 """,
-    "How to Interpret the Factor Lens": """
-The factor lens is a **measurement framework**, not a statement of economic truth.
+    "How to Interpret the cross-asset factor-based lens": """
+The cross-asset factor-based lens is a **measurement framework**, not a statement of economic truth.
 
 All exposures, risk contributions, and residuals are defined **relative to the chosen factor set, proxy instruments, and orthogonalization order**.
 
@@ -191,32 +210,40 @@ There is no single correct order — this hierarchy reflects a transparent,
 interpretable compromise rather than a universal truth.
 """,
 
-    "What We Mean by Risk": """
-Throughout the dashboard, “risk” refers to **modeled volatility**, not total uncertainty.
+    "What is meant by factor risk": """
+Throughout the dashboard, “factor risk” refers to **modeled volatility**, not total uncertainty.
 
 Specifically:
 - Risk is estimated using historical returns and EWMA covariance models
 - Tail events, regime shifts, and non-linear losses are not fully captured
 - Risk estimates are conditional on the chosen lookback window and decay parameters
 
-The risk lens is most useful for **relative comparisons**, scenario reasoning,
+The cross-asset factor-based risk lens is most useful for **relative comparisons**, scenario reasoning,
 and understanding diversification — not for predicting extreme outcomes.
 """,
-
+    "Currency and Hedging Scope": """
+All portfolio analytics are expressed in the selected base currency via FX conversion.
+However, factor proxies are simple ETF-based stand-ins and are not constructed using a full currency-hedged index methodology.
+As a result, some currency effects may appear in multiple places (asset returns, factor proxies, and the explicit FX factor).
+""",
 
     "Risk Decomposition (MCTR)": """
-We calculate Marginal Contribution to Risk (MCTR) using **Euler Decomposition**.
-This ensures that the sum of (Asset Weight × Marginal Contribution) adds up to exactly 100% of the (modeled or historically calculated) portfolio volatility.
+We compute Marginal Contribution to Risk (MCTR) using an Euler decomposition so that contributions add up to total modeled volatility.
+
+Interpretation:
+- Risk contribution is not the same as capital weight.
+- A small allocation can dominate volatility if it is highly volatile or strongly correlated with the rest of the portfolio.
+- Correlation structure is often the real driver of “hidden concentration.”
 """,
 
     "Factor Construction Volatility Scaling": """
 After orthogonalization, residual factors are scaled to target {target_vol_pct}
-annualized volatility. This normalizes the 'Factor Lens' so that a Beta of 1.0
+annualized volatility. This normalizes the 'cross-asset factor-based lens' so that a Beta of 1.0
 implies a broadly comparable risk contribution, regardless of whether it is
 Equity or Momentum.
 """,
 
-    "Return Attribution (Factor Lens)": """
+    "Return Attribution (cross-asset factor-based lens)": """
 Factor-based return attribution decomposes portfolio returns into contributions from each risk factor plus a residual component.
 
 $Residual_t = PortfolioExcess_t - \sum (Beta_f \times FactorReturn_f)$
@@ -276,10 +303,24 @@ Measures the percentage decline from the previous All-Time High.
 * **Interpretation:** Visualizes 'Pain'. Deep valleys are crashes. The width of the valley shows the 'Time to Recovery'.
 """,
 
+    "Estimation Uncertainty and Stability": """
+Exposure estimates come from historical regressions and can be noisy.
+
+Practical interpretation tips:
+- Focus on **large and persistent** exposures (stable across rolling windows).
+- Treat small exposures as “maybe” unless they are consistently present.
+- Short windows and choppy markets can cause betas to move quickly even when the underlying strategy hasn’t changed.
+
+This is why the dashboard emphasizes exposures + risk contribution + stability over time, rather than a single point estimate.
+""",
+
     "Plot: Factor Exposures": """
 **Tab 2 (Factors)**
-A Bar chart showing sensitivity (Beta) to macro drivers.
-* **Interpretation:** Beta of 0.5 to 'Equity' means if stocks rise 1%, your portfolio expects to rise 0.5%. Negative bars indicate a hedge.
+A bar chart showing regression betas to the factor return series used in this dashboard.
+
+* **Interpretation:** A larger positive beta means the portfolio tends to move with that factor; a negative beta indicates hedge-like behavior.
+* Betas here are model-relative: they depend on the factor proxies, orthogonalization order, and (where applicable) volatility scaling.
+* Treat betas as a **co-movement diagnostic**, not a causal statement or a precise one-day sensitivity.
 """,
 
     "Plot: Risk Contribution": """
@@ -298,7 +339,7 @@ Shows the annualized standard deviation over a 6-month window.
 The factor risk model decomposes portfolio volatility into two pieces:
 
 - **Systematic risk**: volatility explained by the factor model
-  (the cross-asset factor lens).
+  (the cross-asset factor-based lens).
 - **Idiosyncratic risk**: residual volatility not explained by
   the factors, i.e. specific to the portfolio implementation.
 
@@ -385,6 +426,37 @@ purposes only. It is not investment advice, and the outputs
 should not be used as the sole basis for real-world portfolio
 decisions.
 """,
+
+    "Factor Types and Practical Expectations": """
+In this dashboard we group risks into:
+- **Broad market drivers (macro-like)**: typically higher-capacity and more persistent through time.
+- **Cross-sectional tilts (style-like)**: often noisier, more regime-dependent, and more sensitive to proxy choice.
+- **Residual**: whatever the model cannot explain; this can include manager skill, implementation details, or simply missing factors.
+
+A useful rule of thumb:
+macro-style exposures tend to be more stable; style-like and residual components tend to move around more and should be interpreted with extra caution.
+""",
+    "Proxy Choices and What They Imply": """
+All factors here are represented using investable ETF proxies.
+This makes the system transparent and reproducible, but it also means:
+
+- Factor behavior reflects the ETF's implementation (index rules, sector tilts, fees, rebalancing).
+- Style proxies (e.g., Value/Momentum ETFs) are not pure theoretical portfolios; they can embed broad market exposure and other tilts.
+- Orthogonalization reduces overlap with parent factors, but it does not turn a long-only proxy into a perfectly isolated “pure factor.”
+
+If you swap proxies, you will generally change exposures, risk contributions, and residuals.
+""",
+    "Relationship to External Research": """
+This dashboard is an independent, educational implementation inspired by
+publicly available academic and industry research on factor-based portfolio analysis.
+
+It is not affiliated with, endorsed by, or a replica of any proprietary platform.
+
+All factor definitions, proxy choices, and modeling decisions are original to
+this implementation and chosen for transparency and pedagogical clarity.
+"""
+
+
 }
 
 
@@ -511,7 +583,7 @@ def _get_clean_definitions():
         method = cfg.AssetRiskConfig.returns_method.value.title()
         base["Return Conventions"] += f"\n\n(Current Asset Return Method: **{method}**)"
 
-    # factor lens
+    # cross-asset factor-based lens
     if "Exposure Estimation" in base:
         base["Exposure Estimation"] += (
             f"\n\n**Current Settings:**\n"
