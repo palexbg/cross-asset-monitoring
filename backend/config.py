@@ -17,7 +17,7 @@ class LLMConfig:
     top_p: float = 1.0               # Standard pairing with Temp 0
 
     # Constraints
-    max_tokens: int = 600
+    max_tokens: int = 4000
 
     # Penalties - 0 for technical definitions
     frequency_penalty: float = 0.0
